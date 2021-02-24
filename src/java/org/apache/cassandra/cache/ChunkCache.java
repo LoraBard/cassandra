@@ -210,7 +210,7 @@ public class ChunkCache
      * Rebufferer providing cached chunks where data is obtained from the specified ChunkReader.
      * Thread-safe. One instance per SegmentedFile, created by ChunkCache.maybeWrap if the cache is enabled.
      */
-    class CachingRebufferer implements Rebufferer, RebuffererFactory
+    class CachingRebufferer implements Rebufferer, RebuffererFactory, CachingSupport
     {
         private final ChunkReader source;
         final long alignmentMask;
@@ -243,6 +243,7 @@ public class ChunkCache
             }
         }
 
+        @Override
         public void invalidate(long position)
         {
             long pageAlignedPos = position & alignmentMask;

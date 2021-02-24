@@ -22,9 +22,8 @@ import java.io.IOException;
 
 import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.Slices;
-import org.apache.cassandra.db.rows.SerializationHelper;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.io.util.FileDataInput;
-import org.apache.cassandra.io.util.Rebufferer;
 
 class ForwardIndexedReader extends ForwardReader
 {
@@ -36,7 +35,7 @@ class ForwardIndexedReader extends ForwardReader
                          Slices slices,
                          FileDataInput file,
                          boolean shouldCloseFile,
-                         SerializationHelper helper)
+                         DeserializationHelper helper)
     {
         super(sstable, slices, file, shouldCloseFile, helper);
         basePosition = indexEntry.position;

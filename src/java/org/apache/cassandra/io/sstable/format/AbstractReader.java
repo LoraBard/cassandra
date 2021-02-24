@@ -25,6 +25,7 @@ import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.UnfilteredDeserializer;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.RangeTombstoneBoundMarker;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.SerializationHelper;
@@ -67,7 +68,7 @@ public abstract class AbstractReader implements SSTableReader.PartitionReader
                              Slices slices,
                              FileDataInput file,
                              boolean shouldCloseFile,
-                             SerializationHelper helper,
+                             DeserializationHelper helper,
                              boolean reversed)
     {
         assert file != null;
@@ -114,7 +115,7 @@ public abstract class AbstractReader implements SSTableReader.PartitionReader
             case NEEDS_PRE_SLICE:
                 do
                 {
-                    filePos = file.getSeekPosition();
+                    filePos = file.getFilePointer();
                 }
                 while (!preSliceStep());
                 // Note: If this succeeded, the deserializer is prepared and the file pointer is in the middle of a row
@@ -126,7 +127,7 @@ public abstract class AbstractReader implements SSTableReader.PartitionReader
             case NEEDS_SLICE_PREP:
                 while (!slicePrepStep())
                 {
-                    filePos = file.getSeekPosition();
+                    filePos = file.getFilePointer();
                 }
 
                 stage = Stage.READY;
@@ -136,7 +137,7 @@ public abstract class AbstractReader implements SSTableReader.PartitionReader
                 // fall through
             case READY:
                 next = nextInSlice();
-                filePos = file.getSeekPosition();
+                filePos = file.getFilePointer();
                 if (next != null)
                     return next;
                 stage = Stage.NEEDS_BLOCK;
@@ -155,7 +156,7 @@ public abstract class AbstractReader implements SSTableReader.PartitionReader
             case NEEDS_PRE_BLOCK:
                 do
                 {
-                    filePos = file.getSeekPosition();
+                    filePos = file.getFilePointer();
                 }
                 while (!preBlockStep());
 
@@ -164,7 +165,7 @@ public abstract class AbstractReader implements SSTableReader.PartitionReader
             case NEEDS_BLOCK_PREP:
                 while (!blockPrepStep())
                 {
-                    filePos = file.getSeekPosition();
+                    filePos = file.getFilePointer();
                 }
 
                 stage = stage.READY;
@@ -250,7 +251,7 @@ public abstract class AbstractReader implements SSTableReader.PartitionReader
             if (deserializer.compareNextTo(end) >= 0)
             {   // make sure we are not in the middle of an unfiltered when returning null because leaving
                 // the file pointer in the middle is not allowed as it would break a retry
-                deserializer.rewind();
+                deserializer.clearState();
                 return null;
             }
 

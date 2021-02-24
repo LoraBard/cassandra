@@ -18,6 +18,7 @@
 package org.apache.cassandra.io.sstable.format;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -41,6 +42,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
+import org.apache.cassandra.io.sstable.SSTableIdentityIterator;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.schema.TableMetadata;
@@ -191,14 +193,9 @@ public class SSTableScanner implements ISSTableScanner
         }
     }
 
-    public FileProgressIndicator getProgress()
-    {
-        return dfile.getProgress();
-    }
-
     public long getSeekPosition()
     {
-        return dfile.getSeekPosition();
+        return dfile.getFilePointer();
     }
 
     public long getBytesScanned()
@@ -253,8 +250,8 @@ public class SSTableScanner implements ISSTableScanner
 
     protected class KeyScanningIterator extends AbstractIterator<UnfilteredRowIterator> implements CloseableIterator<UnfilteredRowIterator>
     {
-        private DecoratedKey currentKey;
-        private RowIndexEntry currentEntry;
+        private ByteBuffer currentKey;
+        private long dataPosition;
         private PartitionIndexIterator iterator;
         private LazilyInitializedUnfilteredRowIterator currentRowIterator;
 
@@ -273,9 +270,9 @@ public class SSTableScanner implements ISSTableScanner
 
                     if (iterator != null)
                     {
-                        currentEntry = iterator.entry();
+                        dataPosition = iterator.dataPosition();
                         currentKey = iterator.key();
-                        if (currentEntry != null)
+                        if (dataPosition >= 0)
                         {
                             iterator.advance();
                             break;
@@ -299,20 +296,20 @@ public class SSTableScanner implements ISSTableScanner
                 {
                     protected UnfilteredRowIterator initializeIterator()
                     {
-                        try
-                        {
                             if (startScan != -1)
                                 bytesScanned += getSeekPosition() - startScan;
-
-                            startScan = currentEntry.position;
+                        try
+                        {
+                            startScan = dataPosition;
                             if (dataRange == null)
                             {
-                                return sstable.simpleIterator(dfile, partitionKey(), currentEntry, false);
+                                return SSTableIdentityIterator.create(sstable, dfile, new RowIndexEntry<>(dataPosition), partitionKey(), false);
                             }
                             else
                             {
                                 ClusteringIndexFilter filter = dataRange.clusteringIndexFilter(partitionKey());
-                                return sstable.iterator(dfile, partitionKey(), currentEntry, filter.getSlices(SSTableScanner.this.metadata()), columns, filter.isReversed());
+                                dfile.seek(dataPosition);
+                                return sstable.iterator(partitionKey(), filter.getSlices(SSTableScanner.this.metadata()), columns, filter.isReversed(), null);
                             }
                         }
                         catch (CorruptSSTableException e)
@@ -348,10 +345,7 @@ public class SSTableScanner implements ISSTableScanner
     @Override
     public String toString()
     {
-        return getClass().getSimpleName() + "(" +
-               "dfile=" + dfile +
-               " sstable=" + sstable +
-               ")";
+        return String.format("%s(dfile=%s sstable=%s)", getClass().getSimpleName(), dfile, sstable);
     }
 
     public static class EmptySSTableScanner extends AbstractUnfilteredPartitionIterator implements ISSTableScanner
@@ -363,12 +357,7 @@ public class SSTableScanner implements ISSTableScanner
             this.sstable = sstable;
         }
 
-        public FileProgressIndicator getProgress()
-        {
-            return FileProgressIndicator.NONE;
-        }
-
-        public long getSeekPosition()
+        public long getCurrentPosition()
         {
             return 0;
         }
@@ -390,7 +379,7 @@ public class SSTableScanner implements ISSTableScanner
 
         public String getBackingFiles()
         {
-            return sstable.getFilename().getPath();
+            return sstable.getFilename();
         }
 
         public TableMetadata metadata()

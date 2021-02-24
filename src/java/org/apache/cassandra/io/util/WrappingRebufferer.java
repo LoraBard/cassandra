@@ -19,7 +19,6 @@ package org.apache.cassandra.io.util;
 
 import java.nio.ByteBuffer;
 import java.util.Deque;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import javax.annotation.Nullable;
 
@@ -37,7 +36,7 @@ public class WrappingRebufferer implements Rebufferer
     @Override
     public BufferHolder rebuffer(long position)
     {
-        BufferHolder bufferHolder = source.rebuffer(position, constraint);
+        BufferHolder bufferHolder = source.rebuffer(position);
         return newBufferHolder().initialize(bufferHolder, bufferHolder.buffer(), bufferHolder.offset());
     }
 
@@ -67,17 +66,6 @@ public class WrappingRebufferer implements Rebufferer
     public double getCrcCheckChance()
     {
         return source.getCrcCheckChance();
-    }
-
-    @Override
-    public long adjustExternal(long position)
-    {
-        return source.adjustExternal(position);
-    }
-
-    public long adjustInternal(long position)
-    {
-        return source.adjustInternal(position);
     }
 
     @Override
@@ -122,11 +110,13 @@ public class WrappingRebufferer implements Rebufferer
             return this;
         }
 
-        public ByteBuffer unsafeBuffer()
+        @Override
+        public ByteBuffer buffer()
         {
             return buffer;
         }
 
+        @Override
         public long offset()
         {
             return offset;
@@ -147,6 +137,7 @@ public class WrappingRebufferer implements Rebufferer
             this.buffer.limit(limit);
         }
 
+        @Override
         public void release()
         {
             assert buffer != null : "released twice";

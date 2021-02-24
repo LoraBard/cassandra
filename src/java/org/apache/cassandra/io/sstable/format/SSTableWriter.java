@@ -63,6 +63,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
     protected final TransactionalProxy txnProxy = txnProxy();
     protected final Collection<SSTableFlushObserver> observers;
 
+
     protected abstract TransactionalProxy txnProxy();
 
     // due to lack of multiple inheritance, we use an inner class to proxy our Transactional implementation details

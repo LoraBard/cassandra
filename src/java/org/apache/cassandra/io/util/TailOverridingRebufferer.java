@@ -52,14 +52,6 @@ public class TailOverridingRebufferer extends WrappingRebufferer
     }
 
     @Override
-    public long adjustExternal(long position) {
-        if (position < cutoff)
-            return super.adjustExternal(position);
-        else
-            return position;
-    }
-
-    @Override
     public long fileLength()
     {
         return cutoff + tail.limit();

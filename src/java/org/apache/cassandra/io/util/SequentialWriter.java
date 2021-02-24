@@ -62,6 +62,9 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
     protected long lastFlushOffset;
 
     protected Runnable runPostFlush;
+    protected Runnable runOnFileSync;
+
+    private boolean requestSyncOnNextFlush;
 
     private final TransactionalProxy txnProxy = txnProxy();
 
@@ -177,6 +180,26 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
     }
 
     /**
+     * Sets a callback that will be invoked every time data is synced to file.
+     */
+    public void setFileSyncListener(Runnable runOnFileSync)
+    {
+        assert this.runOnFileSync == null;
+        this.runOnFileSync = runOnFileSync;
+    }
+
+    /**
+     * Sets a flag that will cause the next flush point to be synced to disk.
+     * This is required to build partial indexes correctly, given that we read
+     * disk content with O_DIRECT, we need to ensure the data is synced to the
+     * device, a flush is not sufficient because O_DIRECT bypasses the OS page cache.
+     */
+    public void requestSyncOnNextFlush()
+    {
+        requestSyncOnNextFlush = true;
+    }
+
+    /**
      * Synchronize file contents with disk.
      */
     public void sync()
@@ -184,11 +207,11 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
         syncInternal();
     }
 
-    protected void syncDataOnlyInternal()
+    protected void syncDataOnlyInternal(boolean syncMetadata)
     {
         try
         {
-            SyncUtil.force(fchannel, false);
+            SyncUtil.force(fchannel, syncMetadata);
         }
         catch (IOException e)
         {
@@ -201,15 +224,22 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
      * Otherwise it will leave a non-uniform size compressed block in the middle of the file
      * and the compressed format can't handle that.
      */
-    protected void syncInternal()
+    protected void syncInternal(boolean syncMetadata)
     {
         doFlush(0);
-        syncDataOnlyInternal();
+        syncDataOnlyInternal(syncMetadata);
     }
 
-    @Override
-    protected void doFlush(int count)
+    protected void syncInternal()
     {
+        syncInternal(false);
+    }
+
+    protected void doFlush(int count, boolean forceSyncWithMetadata)
+    {
+        boolean sync = forceSyncWithMetadata || requestSyncOnNextFlush;
+        requestSyncOnNextFlush = false;
+
         flushData();
 
         if (option.trickleFsync())
@@ -217,13 +247,22 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
             bytesSinceTrickleFsync += buffer.position();
             if (bytesSinceTrickleFsync >= option.trickleFsyncByteInterval())
             {
-                syncDataOnlyInternal();
+                sync = true;
                 bytesSinceTrickleFsync = 0;
             }
         }
 
+        if (sync)
+            syncDataOnlyInternal();
+
         // Remember that we wrote, so we don't write it again on next flush().
         resetBuffer();
+    }
+
+    @Override
+    protected void doFlush(int count)
+    {
+        doFlush(count, false);
     }
 
     public void setPostFlushListener(Runnable runPostFlush)

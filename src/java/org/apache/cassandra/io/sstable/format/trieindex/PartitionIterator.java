@@ -18,6 +18,7 @@
 package org.apache.cassandra.io.sstable.format.trieindex;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
@@ -26,7 +27,6 @@ import org.apache.cassandra.io.sstable.format.PartitionIndexIterator;
 import org.apache.cassandra.io.sstable.format.RowIndexEntry;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.FileHandle;
-import org.apache.cassandra.io.util.Rebufferer;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Throwables;
 
@@ -43,9 +43,9 @@ class PartitionIterator extends PartitionIndex.IndexPosIterator implements Parti
     private FileDataInput indexInput;
 
     private DecoratedKey currentKey;
-    private RowIndexEntry currentEntry;
+    private RowIndexEntry<?> currentEntry;
     private DecoratedKey nextKey;
-    private RowIndexEntry nextEntry;
+    private RowIndexEntry<?> nextEntry;
     private boolean closeHandles = false;
 
     /**
@@ -123,7 +123,13 @@ class PartitionIterator extends PartitionIndex.IndexPosIterator implements Parti
         Throwables.maybeFail(accum);
     }
 
-    public DecoratedKey key()
+    @Override
+    public ByteBuffer key()
+    {
+        return currentKey.getKey();
+    }
+
+    public DecoratedKey decoratedKey()
     {
         return currentKey;
     }
@@ -133,12 +139,12 @@ class PartitionIterator extends PartitionIndex.IndexPosIterator implements Parti
         return currentEntry != null ? currentEntry.position : -1;
     }
 
-    public RowIndexEntry entry()
+    public RowIndexEntry<?> entry()
     {
         return currentEntry;
     }
 
-    public void advance() throws IOException
+    public boolean advance() throws IOException
     {
         currentKey = nextKey;
         currentEntry = nextEntry;
@@ -153,6 +159,38 @@ class PartitionIterator extends PartitionIndex.IndexPosIterator implements Parti
                 currentEntry = null;
             }
         }
+
+        return currentKey != null;
+    }
+
+    @Override
+    public boolean isExhausted()
+    {
+        return currentKey == null;
+    }
+
+    @Override
+    public long indexPosition()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void indexPosition(long position) throws IOException
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long indexLength()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void reset() throws IOException
+    {
+        throw new UnsupportedOperationException();
     }
 
     private void readNext() throws IOException
@@ -164,14 +202,14 @@ class PartitionIterator extends PartitionIndex.IndexPosIterator implements Parti
             {
                 FileDataInput in = indexInput(pos);
                 nextKey = partitioner.decorateKey(ByteBufferUtil.readWithShortLength(in));
-                nextEntry = TrieIndexEntry.deserialize(in, in.getSeekPosition());
+                nextEntry = TrieIndexEntry.deserialize(in, in.getFilePointer());
             }
             else
             {
                 pos = ~pos;
                 FileDataInput in = dataInput(pos);
                 nextKey = partitioner.decorateKey(ByteBufferUtil.readWithShortLength(in));
-                nextEntry = new RowIndexEntry(pos);
+                nextEntry = new RowIndexEntry<>(pos);
             }
         }
         else

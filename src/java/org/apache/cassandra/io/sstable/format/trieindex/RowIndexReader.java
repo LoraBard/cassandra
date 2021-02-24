@@ -33,12 +33,12 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /**
  * Reader class for row index files.
- *
+ * <p>
  * Row index tries do not need to store whole keys, as what we need from them is to be able to tell where in the data file
  * to start looking for a given key. Instead, we store some prefix that is greater than the greatest key of the previous
  * index section and smaller than or equal to the smallest key of the next. So for a given key the first index section
  * that could potentially contain it is given by the trie's floor for that key.
- *
+ * <p>
  * This builds upon the trie Walker class which provides basic trie walking functionality. The class is thread-unsafe
  * and must be re-instantiated for every thread that needs access to the trie (its overhead is below that of a
  * RandomAccessReader).
@@ -61,7 +61,7 @@ class RowIndexReader extends Walker<RowIndexReader>
 
     public RowIndexReader(FileHandle file, long root)
     {
-        super(file.instantiateRebufferer(), root);
+        super(file.instantiateRebufferer(null), root);
     }
 
     public RowIndexReader(FileHandle file, TrieIndexEntry entry)
@@ -116,8 +116,8 @@ class RowIndexReader extends Walker<RowIndexReader>
         dataOffset = SizedInts.read(buf, ppos, bytes);
         ppos += bytes;
         DeletionTime deletion = (bits & FLAG_OPEN_MARKER) != 0
-                ? DeletionTime.serializer.deserialize(buf, ppos)
-                : null;
+                                ? DeletionTime.serializer.deserialize(buf, ppos)
+                                : null;
         return new IndexInfo(dataOffset, deletion);
     }
 
@@ -169,7 +169,6 @@ class RowIndexReader extends Walker<RowIndexReader>
                     DeletionTime.serializer.serialize(payload.openDeletion, dest);
             }
         }
-
     };
 
     public void dumpTrie(PrintStream out)

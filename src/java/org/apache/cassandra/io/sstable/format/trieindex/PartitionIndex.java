@@ -215,7 +215,6 @@ public class PartitionIndex implements Closeable
         return fh.instantiateRebufferer(null);
     }
 
-
     /**
      * @return the file handle to the file on disk. This is needed for locking the index in RAM,
      * see DB-342 and follow up ticket on how this should be reworked.

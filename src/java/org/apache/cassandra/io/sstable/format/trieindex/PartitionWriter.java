@@ -30,16 +30,18 @@ import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Rows;
+import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredSerializer;
 import org.apache.cassandra.io.sstable.format.SSTableFlushObserver;
 import org.apache.cassandra.io.sstable.format.Version;
+import org.apache.cassandra.io.sstable.format.trieindex.RowIndexReader.IndexInfo;
 import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 /**
  * Partition writer used by {@link TrieIndexSSTableWriter}.
- *
+ * <p>
  * Writes all passed data to the given SequentialWriter and if necessary builds a RowIndex by constructing an entry
  * for each row within a partition that follows {@link org.apache.cassandra.config.Config#column_index_cache_size_in_kb}
  * kilobytes of written data.
@@ -53,6 +55,8 @@ class PartitionWriter implements AutoCloseable
     private final SequentialWriter writer;
     private final Collection<SSTableFlushObserver> observers;
     private final RowIndexWriter rowTrie;
+    private final SerializationHelper helper;
+    private final Version version;
 
     private long initialPosition;
     private long startPosition;
@@ -60,8 +64,8 @@ class PartitionWriter implements AutoCloseable
     private int written;
     private long previousRowStart;
 
-    private ClusteringPrefix firstClustering;
-    private ClusteringPrefix lastClustering;
+    private ClusteringPrefix<?> firstClustering;
+    private ClusteringPrefix<?> lastClustering;
 
     private DeletionTime openMarker = DeletionTime.LIVE;
     private DeletionTime startOpenMarker = DeletionTime.LIVE;
@@ -73,6 +77,7 @@ class PartitionWriter implements AutoCloseable
         AWAITING_STATIC_ROW,
         AWAITING_ROWS
     }
+
     State state;
 
     PartitionWriter(SerializationHeader header,
@@ -84,10 +89,11 @@ class PartitionWriter implements AutoCloseable
     {
         this.header = header;
         this.writer = writer;
-        EncodingVersion version1 = version.encodingVersion();
+        this.version = version;
         this.observers = observers;
         this.rowTrie = new RowIndexWriter(comparator, indexWriter);
-        this.unfilteredSerializer = UnfilteredSerializer.serializers.get(version1);
+        this.unfilteredSerializer = UnfilteredSerializer.serializer;
+        this.helper = new SerializationHelper(header);
     }
 
     public void reset()
@@ -113,7 +119,7 @@ class PartitionWriter implements AutoCloseable
     void writePartitionHeader(DecoratedKey partitionKey, DeletionTime partitionLevelDeletion) throws IOException
     {
         assert state == State.AWAITING_PARTITION_HEADER;
-        ByteBufferUtil.writeWithShortLength(partitionKey.getTempKey(), writer);
+        ByteBufferUtil.writeWithShortLength(partitionKey.getKey(), writer);
 
         long deletionTimePosition = writer.position();
         DeletionTime deletionTime = partitionLevelDeletion;
@@ -127,7 +133,7 @@ class PartitionWriter implements AutoCloseable
     {
         assert state == State.AWAITING_STATIC_ROW;
         long staticRowPosition = writer.position();
-        unfilteredSerializer.serializeStaticRow(staticRow, header, writer);
+        unfilteredSerializer.serializeStaticRow(staticRow, helper, writer, version.correspondingMessagingVersion());
         if (!observers.isEmpty())
             observers.forEach(o -> o.staticRow(staticRow, staticRowPosition));
         state = State.AWAITING_ROWS;
@@ -159,7 +165,7 @@ class PartitionWriter implements AutoCloseable
         }
 
         long unfilteredPosition = writer.position();
-        unfilteredSerializer.serialize(unfiltered, header, writer, pos - previousRowStart);
+        unfilteredSerializer.serialize(unfiltered, helper, writer, pos - previousRowStart, version.correspondingMessagingVersion());
 
         // notify observers about each new row
         if (!observers.isEmpty())
@@ -211,8 +217,7 @@ class PartitionWriter implements AutoCloseable
 
     private void addIndexBlock() throws IOException
     {
-        IndexInfo cIndexInfo = new IndexInfo(startPosition,
-                                             startOpenMarker);
+        IndexInfo cIndexInfo = new IndexInfo(startPosition, startOpenMarker);
         rowTrie.add(firstClustering, lastClustering, cIndexInfo);
         firstClustering = null;
         ++rowIndexCount;

@@ -24,13 +24,11 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.io.sstable.*;
-import org.apache.cassandra.io.sstable.format.big.BigTableRowIndexEntry;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.io.sstable.metadata.ValidationMetadata;
 import org.apache.cassandra.io.util.DiskOptimizationStrategy;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.utils.*;
@@ -41,7 +39,6 @@ import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Set;
@@ -113,11 +110,11 @@ public abstract class SSTableReaderBuilder
         return this;
     }
 
-    public static FileHandle.Builder defaultIndexHandleBuilder(Descriptor descriptor)
+    public static FileHandle.Builder defaultIndexHandleBuilder(Descriptor descriptor, Component component)
     {
-        return new FileHandle.Builder(descriptor.filenameFor(Component.PRIMARY_INDEX))
-               .mmapped(DatabaseDescriptor.getIndexAccessMode() == Config.DiskAccessMode.mmap)
-               .withChunkCache(ChunkCache.instance);
+        return new FileHandle.Builder(descriptor.filenameFor(component))
+                       .mmapped(DatabaseDescriptor.getIndexAccessMode() == Config.DiskAccessMode.mmap)
+                       .withChunkCache(ChunkCache.instance);
     }
 
     public static FileHandle.Builder defaultDataHandleBuilder(Descriptor descriptor)
@@ -289,7 +286,7 @@ public abstract class SSTableReaderBuilder
             initSummary(dataFilePath, components, statsMetadata);
 
             boolean compression = components.contains(Component.COMPRESSION_INFO);
-            try (FileHandle.Builder ibuilder = defaultIndexHandleBuilder(descriptor);
+            try (FileHandle.Builder ibuilder = defaultIndexHandleBuilder(descriptor, Component.PRIMARY_INDEX);
                  FileHandle.Builder dbuilder = defaultDataHandleBuilder(descriptor).compressed(compression))
             {
                 long indexFileLength = new File(descriptor.filenameFor(Component.PRIMARY_INDEX)).length();
@@ -423,7 +420,7 @@ public abstract class SSTableReaderBuilder
                   Set<Component> components) throws IOException
         {
             boolean compression = components.contains(Component.COMPRESSION_INFO);
-            try (FileHandle.Builder ibuilder = defaultIndexHandleBuilder(descriptor);
+            try (FileHandle.Builder ibuilder = defaultIndexHandleBuilder(descriptor, Component.PRIMARY_INDEX);
                  FileHandle.Builder dbuilder = defaultDataHandleBuilder(descriptor).compressed(compression))
             {
                 loadSummary();
@@ -470,5 +467,11 @@ public abstract class SSTableReaderBuilder
                 throw t;
             }
         }
+    }
+
+    public static FileHandle.Builder forVerify(FileHandle.Builder builder)
+    {
+        return builder.withChunkCache(null)
+                      .mmapped(false);
     }
 }

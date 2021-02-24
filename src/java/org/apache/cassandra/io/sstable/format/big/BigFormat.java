@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.UUID;
 
+import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.util.FileHandle;
@@ -108,7 +109,7 @@ public class BigFormat implements SSTableFormat
         @Override
         public PartitionIndexIterator indexIterator(Descriptor descriptor, TableMetadata metadata)
         {
-            try (FileHandle iFile = SSTableReaderBuilder.defaultIndexHandleBuilder(descriptor).complete()) {
+            try (FileHandle iFile = SSTableReaderBuilder.defaultIndexHandleBuilder(descriptor, Component.PRIMARY_INDEX).complete()) {
                 SerializationHeader.Component headerComponent = (SerializationHeader.Component)
                                                                 descriptor.getMetadataSerializer()
                                                                           .deserialize(descriptor, MetadataType.HEADER);

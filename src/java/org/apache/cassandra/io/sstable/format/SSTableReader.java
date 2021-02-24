@@ -46,9 +46,17 @@ import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.rows.AbstractUnfilteredRowIterator;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.EncodingStats;
+import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.Rows;
+import org.apache.cassandra.db.rows.SerializationHelper;
+import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.rows.UnfilteredRowIterators;
+import org.apache.cassandra.db.rows.UnfilteredSerializer;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
@@ -755,6 +763,11 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
     }
 
+    protected void addCloseables(AutoCloseable ... closeables)
+    {
+        tidy.closeables.addAll(Arrays.asList(closeables));
+    }
+
     /**
      * Execute provided task with sstable lock to avoid racing with index summary redistribution, SEE CASSANDRA-15861.
      *
@@ -1223,43 +1236,37 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         if (indexRanges.isEmpty())
             return Collections.emptyList();
 
-        return new Iterable<DecoratedKey>()
+        return () -> new Iterator<DecoratedKey>()
         {
-            public Iterator<DecoratedKey> iterator()
+            private Iterator<IndexesBounds> rangeIter = indexRanges.iterator();
+            private IndexesBounds current;
+            private int idx;
+
+            public boolean hasNext()
             {
-                return new Iterator<DecoratedKey>()
+                if (current == null || idx > current.upperPosition)
                 {
-                    private Iterator<IndexesBounds> rangeIter = indexRanges.iterator();
-                    private IndexesBounds current;
-                    private int idx;
-
-                    public boolean hasNext()
+                    if (rangeIter.hasNext())
                     {
-                        if (current == null || idx > current.upperPosition)
-                        {
-                            if (rangeIter.hasNext())
-                            {
-                                current = rangeIter.next();
-                                idx = current.lowerPosition;
-                                return true;
-                            }
-                            return false;
-                        }
-
+                        current = rangeIter.next();
+                        idx = current.lowerPosition;
                         return true;
                     }
+                    return false;
+                }
 
-                    public DecoratedKey next()
-                    {
-                        byte[] bytes = indexSummary.getKey(idx++);
-                        return decorateKey(ByteBuffer.wrap(bytes));
-                    }
+                return true;
+            }
 
-                    public void remove()
-                    {
-                        throw new UnsupportedOperationException();
-                    }
-                };
+            public DecoratedKey next()
+            {
+                byte[] bytes = indexSummary.getKey(idx++);
+                return decorateKey(ByteBuffer.wrap(bytes));
+            }
+
+            public void remove()
+            {
+                throw new UnsupportedOperationException();
             }
         };
     }
@@ -1389,6 +1396,125 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
                                                    SSTableReadsListener listener);
 
     public abstract UnfilteredRowIterator simpleIterator(Supplier<FileDataInput> dfile, DecoratedKey key, boolean tombstoneOnly);
+
+    @SuppressWarnings("resource")   // Closed by caller
+    public UnfilteredRowIterator iterator(FileDataInput dataFileInput,
+                                          DecoratedKey key,
+                                          RowIndexEntry<?> indexEntry,
+                                          Slices slices,
+                                          ColumnFilter selectedColumns,
+                                          boolean reversed)
+    {
+        if (indexEntry == null)
+            return UnfilteredRowIterators.noRowsIterator(metadata(), key, Rows.EMPTY_STATIC_ROW, DeletionTime.LIVE, reversed);
+
+        boolean shouldCloseFile = false;
+        if (dataFileInput == null)
+        {
+            dataFileInput = openDataReader();
+            shouldCloseFile = true;
+        }
+
+        DeletionTime partitionLevelDeletion;
+        Row staticRow;
+
+        DeserializationHelper helper = new DeserializationHelper(metadata(), descriptor.version.correspondingMessagingVersion(), DeserializationHelper.Flag.LOCAL, selectedColumns);
+        try
+        {
+            // We seek to the beginning to the partition if either:
+            //   - the partition is not indexed; we then have a single block to read anyway
+            //     (and we need to read the partition deletion time).
+            //   - we're querying static columns.
+            boolean needSeekAtPartitionStart = !indexEntry.isIndexed() || !selectedColumns.fetchedColumns().statics.isEmpty();
+
+            if (needSeekAtPartitionStart)
+            {
+                // Not indexed (or is reading static), set to the beginning of the partition and read partition level deletion there
+                dataFileInput.seek(indexEntry.position);
+
+                ByteBufferUtil.skipShortLength(dataFileInput); // Skip partition key
+                partitionLevelDeletion = DeletionTime.serializer.deserialize(dataFileInput);
+                staticRow = readStaticRow(this, dataFileInput, helper, selectedColumns.fetchedColumns().statics);
+            }
+            else
+            {
+                partitionLevelDeletion = indexEntry.deletionTime();
+                staticRow = Rows.EMPTY_STATIC_ROW;
+            }
+
+            @SuppressWarnings("resource")   // Closed with iterator (whose constructor can't throw)
+            PartitionReader reader = reader(dataFileInput, shouldCloseFile, indexEntry, helper, slices, reversed);
+            return new AbstractUnfilteredRowIterator(metadata(), key, partitionLevelDeletion, selectedColumns.fetchedColumns(), staticRow, reversed, stats())
+            {
+                protected Unfiltered computeNext()
+                {
+                    Unfiltered next;
+                    try
+                    {
+                        next = reader.next();
+                    }
+                    catch (IOException | IndexOutOfBoundsException e)
+                    {
+                        markSuspect();
+                        throw new CorruptSSTableException(e, dfile.path());
+                    }
+
+                    if (next != null)
+                        return next;
+                    else
+                        return endOfData();
+                }
+
+                public void close()
+                {
+                    try
+                    {
+                        reader.close();
+                    }
+                    catch (IOException e)
+                    {
+                        markSuspect();
+                        throw new CorruptSSTableException(e, dfile.path());
+                    }
+                }
+            };
+        }
+        catch (IOException e)
+        {
+            markSuspect();
+            if (shouldCloseFile)
+            {
+                try
+                {
+                    dataFileInput.close();
+                }
+                catch (IOException suppressed)
+                {
+                    e.addSuppressed(suppressed);
+                }
+            }
+            throw new CorruptSSTableException(e, dfile.path());
+        }
+    }
+
+    static Row readStaticRow(SSTableReader sstable,
+                             FileDataInput file,
+                             DeserializationHelper helper,
+                             Columns statics) throws IOException
+    {
+        if (!sstable.header.hasStatic())
+            return Rows.EMPTY_STATIC_ROW;
+
+        if (statics.isEmpty())
+        {
+            UnfilteredSerializer.serializer.skipStaticRow(file, sstable.header, helper);
+            return Rows.EMPTY_STATIC_ROW;
+        }
+        else
+        {
+            return UnfilteredSerializer.serializer.deserializeStaticRow(file, sstable.header, helper);
+        }
+    }
 
     /**
      * Finds and returns the first key beyond a given token in this SSTable or null if no such key exists.
@@ -1619,35 +1745,41 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         return Iterables.any(ranges, r -> r.intersects(range));
     }
 
+    protected boolean inBloomFilter(DecoratedKey dk)
+    {
+        return first.compareTo(dk) <= 0 && last.compareTo(dk) >= 0 && bf.isPresent(dk);
+    }
+
     /**
      * TODO: Move someplace reusable
      */
-    public abstract static class Operator
+    public enum Operator
     {
-        public static final Operator EQ = new Equals();
-        public static final Operator GE = new GreaterThanOrEqualTo();
-        public static final Operator GT = new GreaterThan();
+        EQ
+        {
+            public int apply(int comparison) { return -comparison; }
+        },
+
+        GE
+        {
+            public int apply(int comparison) { return comparison >= 0 ? 0 : 1; }
+        },
+
+        GT
+        {
+            public int apply(int comparison) { return comparison > 0 ? 0 : 1; }
+        },
+
+        LT
+        {
+            public int apply(int comparison) { return comparison < 0 ? 0 : 1; }
+        };
 
         /**
          * @param comparison The result of a call to compare/compareTo, with the desired field on the rhs.
          * @return less than 0 if the operator cannot match forward, 0 if it matches, greater than 0 if it might match forward.
          */
         public abstract int apply(int comparison);
-
-        final static class Equals extends Operator
-        {
-            public int apply(int comparison) { return -comparison; }
-        }
-
-        final static class GreaterThanOrEqualTo extends Operator
-        {
-            public int apply(int comparison) { return comparison >= 0 ? 0 : 1; }
-        }
-
-        final static class GreaterThan extends Operator
-        {
-            public int apply(int comparison) { return comparison > 0 ? 0 : 1; }
-        }
     }
 
     public long getBloomFilterFalsePositiveCount()
@@ -1938,8 +2070,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         private IFilter bf;
         private IndexSummary summary;
 
-        private FileHandle dfile;
-        private FileHandle ifile;
+        private final List<AutoCloseable> closeables = new CopyOnWriteArrayList<>();
         private Runnable runOnClose;
         private boolean isReplaced = false;
 
@@ -1955,8 +2086,8 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             this.setup = true;
             this.bf = reader.bf;
             this.summary = reader.indexSummary;
-            this.dfile = reader.dfile;
-            this.ifile = reader.ifile;
+            this.closeables.add(reader.dfile);
+            this.closeables.add(reader.ifile);
             // get a new reference to the shared descriptor-type tidy
             this.globalRef = GlobalTidy.get(reader);
             this.global = globalRef.get();
@@ -1989,34 +2120,27 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             else
                 barrier = null;
 
-            ScheduledExecutors.nonPeriodicTasks.execute(new Runnable()
-            {
-                public void run()
-                {
-                    if (logger.isTraceEnabled())
-                        logger.trace("Async instance tidier for {}, before barrier", descriptor);
+            ScheduledExecutors.nonPeriodicTasks.execute(() -> {
+                if (logger.isTraceEnabled())
+                    logger.trace("Async instance tidier for {}, before barrier", descriptor);
 
-                    if (barrier != null)
-                        barrier.await();
+                if (barrier != null)
+                    barrier.await();
 
-                    if (logger.isTraceEnabled())
-                        logger.trace("Async instance tidier for {}, after barrier", descriptor);
+                if (logger.isTraceEnabled())
+                    logger.trace("Async instance tidier for {}, after barrier", descriptor);
 
-                    if (bf != null)
-                        bf.close();
-                    if (summary != null)
-                        summary.close();
-                    if (runOnClose != null)
-                        runOnClose.run();
-                    if (dfile != null)
-                        dfile.close();
-                    if (ifile != null)
-                        ifile.close();
-                    globalRef.release();
+                if (bf != null)
+                    bf.close();
+                if (summary != null)
+                    summary.close();
+                if (runOnClose != null)
+                    runOnClose.run();
+                Throwables.close(null, closeables);
+                globalRef.release();
 
-                    if (logger.isTraceEnabled())
-                        logger.trace("Async instance tidier for {}, completed", descriptor);
-                }
+                if (logger.isTraceEnabled())
+                    logger.trace("Async instance tidier for {}, completed", descriptor);
             });
         }
 
@@ -2256,4 +2380,14 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         ExecutorUtils.shutdownNowAndWait(timeout, unit, syncExecutor);
         resetTidying();
     }
+
+    protected interface PartitionReader extends Closeable
+    {
+        /** Returns next item or null if exhausted. */
+        Unfiltered next() throws IOException;
+
+        /** Resets the state as it was before the last attempted next() call. */
+        void resetReaderState() throws IOException;
+    }
+
 }

@@ -110,7 +110,6 @@ public class PartitionIndexBuilder implements AutoCloseable
         if (partitionIndexSyncPosition < partialIndexPartitionEnd)
             return;
 
-        writer.updateFileHandle(fhBuilder);
         try (FileHandle fh = fhBuilder.complete())
         {
             @SuppressWarnings("resource")   // consumer to close
@@ -162,8 +161,8 @@ public class PartitionIndexBuilder implements AutoCloseable
         long firstKeyPos = writer.position();
         if (firstKey != null)
         {
-            ByteBufferUtil.writeWithShortLength(firstKey.getTempKey(), writer);
-            ByteBufferUtil.writeWithShortLength(lastKey.getTempKey(), writer);
+            ByteBufferUtil.writeWithShortLength(firstKey.getKey(), writer);
+            ByteBufferUtil.writeWithShortLength(lastKey.getKey(), writer);
         }
         else
         {
@@ -173,15 +172,12 @@ public class PartitionIndexBuilder implements AutoCloseable
         }
 
         // The next three longs are needed to be able to open the table and must be readable at a fixed offset from the
-        // end of the file. The call below ensures that for encrypted files which do not provide precise file length.
-        writer.establishEndAddressablePosition(PartitionIndex.FOOTER_LENGTH);
-
+        // end of the file.
         writer.writeLong(firstKeyPos);
         writer.writeLong(count);
         writer.writeLong(root);
 
         writer.sync();
-        writer.updateFileHandle(fhBuilder);
 
         return root;
     }

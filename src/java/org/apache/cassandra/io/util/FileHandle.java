@@ -28,12 +28,12 @@ import org.apache.cassandra.cache.ChunkCache;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.compress.CompressionMetadata;
 import org.apache.cassandra.utils.NativeLibrary;
+import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.concurrent.RefCounted;
 import org.apache.cassandra.utils.concurrent.SharedCloseableImpl;
 
 import static org.apache.cassandra.utils.Throwables.maybeFail;
-import org.apache.cassandra.utils.Throwables;
 
 /**
  * {@link FileHandle} provides access to a file for reading, including the ones written by various {@link SequentialWriter}
@@ -168,13 +168,19 @@ public class FileHandle extends SharedCloseableImpl
         NativeLibrary.trySkipCache(channel.getFileDescriptor(), 0, position, path());
     }
 
-    private Rebufferer instantiateRebufferer(RateLimiter limiter)
+    public Rebufferer instantiateRebufferer(RateLimiter limiter)
     {
         Rebufferer rebufferer = rebuffererFactory.instantiateRebufferer();
 
         if (limiter != null)
             rebufferer = new LimitingRebufferer(rebufferer, limiter, DiskOptimizationStrategy.MAX_BUFFER_SIZE);
         return rebufferer;
+    }
+
+    public void invalidateIfCached(long position)
+    {
+        if (rebuffererFactory instanceof CachingSupport)
+            ((CachingSupport) rebuffererFactory).invalidate(position);
     }
 
     /**
@@ -355,7 +361,11 @@ public class FileHandle extends SharedCloseableImpl
                 if (compressed && compressionMetadata == null)
                     compressionMetadata = CompressionMetadata.create(channelCopy.filePath());
 
-                long length = overrideLength > 0 ? overrideLength : compressed ? compressionMetadata.compressedFileLength : channelCopy.size();
+                long length = overrideLength > 0
+                              ? overrideLength
+                              : compressed
+                                ? compressionMetadata.compressedFileLength
+                                : channelCopy.size();
 
                 RebuffererFactory rebuffererFactory;
                 if (mmapped)

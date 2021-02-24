@@ -18,11 +18,13 @@
 package org.apache.cassandra.db;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 import com.google.common.base.Objects;
 
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.io.ISerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -171,13 +173,25 @@ public class DeletionTime implements Comparable<DeletionTime>, IMeasurableMemory
             out.writeLong(delTime.markedForDeleteAt());
         }
 
+        private DeletionTime deserialize(int ldt, long mfda)
+        {
+            return mfda == Long.MIN_VALUE && ldt == Integer.MAX_VALUE
+                   ? LIVE
+                   : new DeletionTime(mfda, ldt);
+        }
+
+        public DeletionTime deserialize(ByteBuffer in, int offset)
+        {
+            int ldt = in.getInt(offset);
+            long mfda = in.getLong(offset + Integer.BYTES);
+            return deserialize(ldt, mfda);
+        }
+
         public DeletionTime deserialize(DataInputPlus in) throws IOException
         {
             int ldt = in.readInt();
             long mfda = in.readLong();
-            return mfda == Long.MIN_VALUE && ldt == Integer.MAX_VALUE
-                 ? LIVE
-                 : new DeletionTime(mfda, ldt);
+            return deserialize(ldt, mfda);
         }
 
         public void skip(DataInputPlus in) throws IOException

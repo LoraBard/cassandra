@@ -402,6 +402,18 @@ public final class NativeLibrary
         return -1;
     }
 
+    public static FileDescriptor getFileDescriptor(FileChannel channel)
+    {
+        try
+        {
+            return (FileDescriptor)FILE_CHANNEL_FD_FIELD.get(channel);
+        }
+        catch (IllegalArgumentException | IllegalAccessException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * @return the PID of the JVM or -1 if we failed to get the PID
      */

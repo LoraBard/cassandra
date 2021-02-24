@@ -20,12 +20,12 @@ package org.apache.cassandra.io.sstable.format.trieindex;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.io.sstable.format.PartitionIndexIterator;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.FileHandle;
-import org.apache.cassandra.io.util.Rebufferer;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class ScrubIterator extends PartitionIndex.IndexPosIterator implements ScrubPartitionIterator
+public class ScrubIterator extends PartitionIndex.IndexPosIterator implements PartitionIndexIterator
 {
     ByteBuffer key;
     long dataPosition;
@@ -58,7 +58,7 @@ public class ScrubIterator extends PartitionIndex.IndexPosIterator implements Sc
     }
 
     @Override
-    public void advance() throws IOException
+    public boolean advance() throws IOException
     {
         long pos = nextIndexPos();
         if (pos != PartitionIndex.NOT_FOUND)
@@ -68,7 +68,7 @@ public class ScrubIterator extends PartitionIndex.IndexPosIterator implements Sc
                 try (FileDataInput in = rowIndexFile.createReader(pos))
                 {
                     key = ByteBufferUtil.readWithShortLength(in);
-                    dataPosition = TrieIndexEntry.deserialize(in, in.getSeekPosition()).position;
+                    dataPosition = TrieIndexEntry.deserialize(in, in.getFilePointer()).position;
                 }
             }
             else
@@ -82,5 +82,37 @@ public class ScrubIterator extends PartitionIndex.IndexPosIterator implements Sc
             key = null;
             dataPosition = -1;
         }
+
+        return key != null;
+    }
+
+    @Override
+    public boolean isExhausted()
+    {
+        return key != null;
+    }
+
+    @Override
+    public long indexPosition()
+    {
+        return super.position;
+    }
+
+    @Override
+    public void indexPosition(long position) throws IOException
+    {
+        go(position);
+    }
+
+    @Override
+    public long indexLength()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void reset() throws IOException
+    {
+        throw new UnsupportedOperationException();
     }
 }

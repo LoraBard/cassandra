@@ -25,9 +25,10 @@ import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.Slices;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
-import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.rows.Unfiltered;
+import org.apache.cassandra.io.sstable.format.AbstractReader;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.FileDataInput;
 
@@ -35,7 +36,7 @@ import org.apache.cassandra.io.util.FileDataInput;
  * Reverse iteration is performed by going through an index block (or the whole partition if not indexed) forwards
  * and storing the positions of each entry that falls within the slice in a stack. Reverse iteration then pops out
  * positions and reads the entries.
- *
+ * <p>
  * Note: The earlier version of this was constructing an in-memory view of the block instead, which gives better
  * performance on bigger queries and index blocks (due to not having to read disk again). With the lower
  * granularity of the tries it makes better sense to store as little as possible as the beginning of the block
@@ -53,7 +54,7 @@ class ReverseReader extends AbstractReader
                   Slices slices,
                   FileDataInput file,
                   boolean shouldCloseFile,
-                  SerializationHelper helper)
+                  DeserializationHelper helper)
     {
         super(sstable, slices, file, shouldCloseFile, helper, true);
     }
@@ -63,7 +64,7 @@ class ReverseReader extends AbstractReader
     {
         // read full row and filter
         if (startPos == -1)
-            startPos = file.getSeekPosition();
+            startPos = file.getFilePointer();
         else
             seekToPosition(startPos);
 
@@ -110,9 +111,9 @@ class ReverseReader extends AbstractReader
         return prepStep(end);
     }
 
-    boolean preStep(ClusteringBound start) throws IOException
+    boolean preStep(ClusteringBound<?> start) throws IOException
     {
-        assert filePos == file.getSeekPosition();
+        assert filePos == file.getFilePointer();
         if (skipSmallerRow(start))
         {
             sliceOpenMarker = openMarker;
@@ -125,7 +126,7 @@ class ReverseReader extends AbstractReader
         }
     }
 
-    boolean prepStep(ClusteringBound end) throws IOException
+    boolean prepStep(ClusteringBound<?> end) throws IOException
     {
         // filePos could be in the middle of a row when prepSteps finish
         if (skipSmallerRow(end))

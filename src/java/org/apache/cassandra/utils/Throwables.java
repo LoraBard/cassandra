@@ -168,13 +168,19 @@ public final class Throwables
         }));
     }
 
+    public static Throwable close(Throwable accumulate, AutoCloseable... closeables)
+    {
+        return close(accumulate, Arrays.asList(closeables));
+    }
+
     public static Throwable close(Throwable accumulate, Iterable<? extends AutoCloseable> closeables)
     {
         for (AutoCloseable closeable : closeables)
         {
             try
             {
-                closeable.close();
+                if (closeable != null)
+                    closeable.close();
             }
             catch (Throwable t)
             {

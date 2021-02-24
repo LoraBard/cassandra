@@ -20,9 +20,7 @@ package org.apache.cassandra.io.sstable.format.trieindex;
 import java.io.IOException;
 
 import org.apache.cassandra.db.DeletionTime;
-import org.apache.cassandra.io.sstable.RowIndexEntry;
 import org.apache.cassandra.io.sstable.format.RowIndexEntry;
-import org.apache.cassandra.io.sstable.format.big.IndexInfo;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ObjectSizes;
@@ -56,7 +54,6 @@ public final class TrieIndexEntry extends RowIndexEntry<Object>
         this.deletionTime = deletionTime;
     }
 
-    @Override
     public int rowIndexCount()
     {
         return rowIndexCount;
