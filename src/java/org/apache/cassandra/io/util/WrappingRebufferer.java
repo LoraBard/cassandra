@@ -35,23 +35,12 @@ public class WrappingRebufferer implements Rebufferer
     }
 
     @Override
-    public BufferHolder rebuffer(long position, ReaderConstraint constraint)
+    public BufferHolder rebuffer(long position)
     {
         BufferHolder bufferHolder = source.rebuffer(position, constraint);
         return newBufferHolder().initialize(bufferHolder, bufferHolder.buffer(), bufferHolder.offset());
     }
 
-    @Override
-    public CompletableFuture<BufferHolder> rebufferAsync(long position)
-    {
-        return source.rebufferAsync(position)
-                     .thenApply(bufferHolder -> newBufferHolder().initialize(bufferHolder, bufferHolder.buffer(), bufferHolder.offset()));
-    }
-
-    public int rebufferSize()
-    {
-        return source.rebufferSize();
-    }
 
     protected WrappingBufferHolder newBufferHolder()
     {
@@ -63,15 +52,9 @@ public class WrappingRebufferer implements Rebufferer
     }
 
     @Override
-    public AsynchronousChannelProxy asyncChannel()
+    public ChannelProxy channel()
     {
-        return source.asyncChannel();
-    }
-
-    @Override
-    public ChannelProxy blockingChannel()
-    {
-        return source.blockingChannel();
+        return source.channel();
     }
 
     @Override
