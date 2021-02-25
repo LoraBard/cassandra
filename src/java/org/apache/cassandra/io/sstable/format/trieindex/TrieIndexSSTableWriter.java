@@ -111,8 +111,7 @@ public class TrieIndexSSTableWriter extends SSTableWriter
                                   TableMetadataRef tableMetadata,
                                   MetadataCollector metadataCollector,
                                   SerializationHeader header,
-                                  Collection<SSTableFlushObserver> observers,
-                                  Set<Component> indexComponents)
+                                  Collection<SSTableFlushObserver> observers)
     {
         super(descriptor, 0, 0, null, true, tableMetadata, metadataCollector, header, observers);
         SerializationHelper helper = new SerializationHelper(header);
@@ -265,8 +264,8 @@ public class TrieIndexSSTableWriter extends SSTableWriter
         return entry;
     }
 
-    @SuppressWarnings("resource")
-    public boolean openEarly(Consumer<SSTableReader> callWhenReady)
+    @Override
+    public SSTableReader openEarly()
     {
         long dataLength = dataFile.position();
 

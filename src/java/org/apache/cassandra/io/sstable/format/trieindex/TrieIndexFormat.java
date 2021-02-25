@@ -21,11 +21,14 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 import com.google.common.collect.ImmutableSet;
 
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.SerializationHeader;
+import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -36,11 +39,13 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReaderBuilder;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.apache.cassandra.io.sstable.format.Version;
+import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -100,12 +105,17 @@ public class TrieIndexFormat implements SSTableFormat
     {
         @Override
         public SSTableWriter open(Descriptor descriptor,
-                                  SSTableWriterCreationHelper helper,
-                                  Collection<SSTableFlushObserver> observers,
-                                  Set<Component> indexComponents,
-                                  SSTableTracker sstableTracker)
+                                           long keyCount,
+                                           long repairedAt,
+                                           UUID pendingRepair,
+                                           boolean isTransient,
+                                           TableMetadataRef metadata,
+                                           MetadataCollector metadataCollector,
+                                           SerializationHeader header,
+                                           Collection<SSTableFlushObserver> observers,
+                                           LifecycleNewTracker lifecycleNewTracker)
         {
-            return new TrieIndexSSTableWriter(descriptor, helper, observers, indexComponents, sstableTracker);
+            return new TrieIndexSSTableWriter(descriptor, metadata, metadataCollector, header, observers);
         }
     }
 
