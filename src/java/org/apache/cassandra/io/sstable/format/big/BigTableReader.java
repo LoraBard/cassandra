@@ -40,6 +40,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReadsListener;
 import org.apache.cassandra.io.sstable.format.SSTableReadsListener.SelectionReason;
 import org.apache.cassandra.io.sstable.format.SSTableReadsListener.SkippingReason;
+import org.apache.cassandra.io.sstable.format.SSTableScanner;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -66,6 +67,21 @@ public class BigTableReader extends SSTableReader
         return BigTablePartitionIndexIterator.create(getIndexFile(), rowIndexEntrySerializer);
     }
 
+    @Override
+    public PartitionIndexIterator coveredKeysIterator(PartitionPosition left, boolean inclusiveLeft, PartitionPosition right, boolean inclusiveRight) throws IOException
+    {
+        BigTablePartitionIndexIterator iterator = BigTablePartitionIndexIterator.create(getIndexFile(), rowIndexEntrySerializer, right, inclusiveRight);
+        if (left != null)
+        {
+            iterator.indexPosition(getIndexScanPosition(left));
+            if (!inclusiveLeft) {
+                if (!iterator.isExhausted())
+                    iterator.advance();
+            }
+        }
+        return iterator;
+    }
+
     public UnfilteredRowIterator iterator(DecoratedKey key,
                                           Slices slices,
                                           ColumnFilter selectedColumns,
@@ -89,7 +105,7 @@ public class BigTableReader extends SSTableReader
     @Override
     public ISSTableScanner getScanner(ColumnFilter columns, DataRange dataRange, SSTableReadsListener listener)
     {
-        return BigTableScanner.getScanner(this, columns, dataRange, listener);
+        return SSTableScanner.getScanner(this, columns, dataRange, listener);
     }
 
     /**
@@ -100,7 +116,7 @@ public class BigTableReader extends SSTableReader
      */
     public ISSTableScanner getScanner(Iterator<AbstractBounds<PartitionPosition>> boundsIterator)
     {
-        return BigTableScanner.getScanner(this, boundsIterator);
+        return SSTableScanner.getScanner(this, boundsIterator);
     }
 
     /**
@@ -110,7 +126,7 @@ public class BigTableReader extends SSTableReader
      */
     public ISSTableScanner getScanner()
     {
-        return BigTableScanner.getScanner(this);
+        return SSTableScanner.getScanner(this);
     }
 
     /**
@@ -122,7 +138,7 @@ public class BigTableReader extends SSTableReader
     public ISSTableScanner getScanner(Collection<Range<Token>> ranges)
     {
         if (ranges != null)
-            return BigTableScanner.getScanner(this, ranges);
+            return SSTableScanner.getScanner(this, ranges);
         else
             return getScanner();
     }
@@ -278,7 +294,7 @@ public class BigTableReader extends SSTableReader
                     if (op == Operator.EQ && updateCacheAndStats)
                         bloomFilterTracker.addTruePositive();
                     listener.onSSTableSelected(this, indexEntry, SelectionReason.INDEX_ENTRY_FOUND);
-                    Tracing.trace("Partition index with {} entries found for sstable {}", indexEntry.columnsIndexCount(), descriptor.generation);
+                    Tracing.trace("Partition index with {} entries found for sstable {}", indexEntry.rowIndexCount(), descriptor.generation);
                     return indexEntry;
                 }
 

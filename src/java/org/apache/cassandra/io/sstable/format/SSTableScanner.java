@@ -23,12 +23,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 
 import org.apache.cassandra.db.DataRange;
-import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -48,7 +49,6 @@ import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.CloseableIterator;
-import org.apache.cassandra.utils.Pair;
 
 import static org.apache.cassandra.dht.AbstractBounds.isEmpty;
 import static org.apache.cassandra.dht.AbstractBounds.maxLeft;
@@ -87,7 +87,7 @@ public class SSTableScanner implements ISSTableScanner
     public static ISSTableScanner getScanner(SSTableReader sstable, Collection<Range<Token>> tokenRanges)
     {
         // We want to avoid allocating a SSTableScanner if the range don't overlap the sstable (#5249)
-        List<Pair<Long, Long>> positions = sstable.getPositionsForRanges(tokenRanges);
+        List<SSTableReader.PartitionPositionBounds> positions = sstable.getPositionsForRanges(tokenRanges);
         if (positions.isEmpty())
             return new EmptySSTableScanner(sstable);
 
@@ -137,12 +137,12 @@ public class SSTableScanner implements ISSTableScanner
 
     private static void addRange(SSTableReader sstable, AbstractBounds<PartitionPosition> requested, List<AbstractBounds<PartitionPosition>> boundsList)
     {
-        if (requested instanceof Range && ((Range)requested).isWrapAround())
+        if (requested instanceof Range && ((Range<PartitionPosition>) requested).isWrapAround())
         {
             if (requested.right.compareTo(sstable.first) >= 0)
             {
                 // since we wrap, we must contain the whole sstable prior to stopKey()
-                Boundary<PartitionPosition> left = new Boundary<PartitionPosition>(sstable.first, true);
+                Boundary<PartitionPosition> left = new Boundary<>(sstable.first, true);
                 Boundary<PartitionPosition> right;
                 right = requested.rightBoundary();
                 right = minRight(right, sstable.last, true);
@@ -152,7 +152,7 @@ public class SSTableScanner implements ISSTableScanner
             if (requested.left.compareTo(sstable.last) <= 0)
             {
                 // since we wrap, we must contain the whole sstable after dataRange.startKey()
-                Boundary<PartitionPosition> right = new Boundary<PartitionPosition>(sstable.last, true);
+                Boundary<PartitionPosition> right = new Boundary<>(sstable.last, true);
                 Boundary<PartitionPosition> left;
                 left = requested.leftBoundary();
                 left = maxLeft(left, sstable.first, true);
@@ -168,7 +168,7 @@ public class SSTableScanner implements ISSTableScanner
             right = requested.rightBoundary();
             left = maxLeft(left, sstable.first, true);
             // apparently isWrapAround() doesn't count Bounds that extend to the limit (min) as wrapping
-            right = requested.right.isMinimum() ? new Boundary<PartitionPosition>(sstable.last, true)
+            right = requested.right.isMinimum() ? new Boundary<>(sstable.last, true)
                                                     : minRight(right, sstable.last, true);
             if (!isEmpty(left, right))
                 boundsList.add(AbstractBounds.bounds(left, right));
@@ -193,7 +193,12 @@ public class SSTableScanner implements ISSTableScanner
         }
     }
 
-    public long getSeekPosition()
+    public long getLengthInBytes()
+    {
+        return dfile.length();
+    }
+
+    public long getCurrentPosition()
     {
         return dfile.getFilePointer();
     }
@@ -208,9 +213,9 @@ public class SSTableScanner implements ISSTableScanner
         return sstable.onDiskLength();
     }
 
-    public String getBackingFiles()
+    public Set<SSTableReader> getBackingSSTables()
     {
-        return sstable.toString();
+        return ImmutableSet.of(sstable);
     }
 
     public int level()
@@ -266,7 +271,7 @@ public class SSTableScanner implements ISSTableScanner
                 while (true)
                 {
                     if (startScan != -1)
-                        bytesScanned += getSeekPosition() - startScan;
+                        bytesScanned += getCurrentPosition() - startScan;
 
                     if (iterator != null)
                     {
@@ -292,12 +297,12 @@ public class SSTableScanner implements ISSTableScanner
                  * file unless we're explicitly asked to. This is important
                  * for PartitionRangeReadCommand#checkCacheFilter.
                  */
-                currentRowIterator = new LazilyInitializedUnfilteredRowIterator(currentKey)
+                currentRowIterator = new LazilyInitializedUnfilteredRowIterator(metadata().partitioner.decorateKey(currentKey))
                 {
                     protected UnfilteredRowIterator initializeIterator()
                     {
                             if (startScan != -1)
-                                bytesScanned += getSeekPosition() - startScan;
+                                bytesScanned += getCurrentPosition() - startScan;
                         try
                         {
                             startScan = dataPosition;
@@ -357,6 +362,10 @@ public class SSTableScanner implements ISSTableScanner
             this.sstable = sstable;
         }
 
+        public long getLengthInBytes()
+        {
+            return 0;
+        }
         public long getCurrentPosition()
         {
             return 0;
@@ -377,9 +386,9 @@ public class SSTableScanner implements ISSTableScanner
             return sstable.getSSTableLevel();
         }
 
-        public String getBackingFiles()
+        public Set<SSTableReader> getBackingSSTables()
         {
-            return sstable.getFilename();
+            return ImmutableSet.of(sstable);
         }
 
         public TableMetadata metadata()

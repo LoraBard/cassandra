@@ -200,7 +200,7 @@ public class UnfilteredRowIteratorWithLowerBound extends LazilyInitializedUnfilt
 
         try (BigTableRowIndexEntry.IndexInfoRetriever onHeapRetriever = rowIndexEntry.openWithIndex(null))
         {
-            IndexInfo column = onHeapRetriever.columnsIndex(isReverseOrder ? rowIndexEntry.columnsIndexCount() - 1 : 0);
+            IndexInfo column = onHeapRetriever.columnsIndex(isReverseOrder ? rowIndexEntry.rowIndexCount() - 1 : 0);
             ClusteringPrefix<?> lowerBoundPrefix = isReverseOrder ? column.lastName : column.firstName;
 
             assert lowerBoundPrefix.getRawValues().length <= metadata().comparator.size() :

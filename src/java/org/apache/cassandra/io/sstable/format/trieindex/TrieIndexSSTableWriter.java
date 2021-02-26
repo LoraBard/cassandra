@@ -47,6 +47,7 @@ import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.rows.Unfiltered;
+import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.compress.BufferType;
@@ -59,7 +60,7 @@ import org.apache.cassandra.io.sstable.format.SSTableFlushObserver;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReaderBuilder;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
-import org.apache.cassandra.io.sstable.format.big.IndexInfo;
+import org.apache.cassandra.io.sstable.format.big.BigTableRowIndexEntry;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
@@ -241,14 +242,14 @@ public class TrieIndexSSTableWriter extends SSTableWriter
         partitionWriter.addUnfiltered(unfiltered);
     }
 
-    public RowIndexEntry endPartition() throws IOException
+    public RowIndexEntry<RowIndexReader.IndexInfo> endPartition() throws IOException
     {
         metadataCollector.addCellPerPartitionCount();
 
         long trieRoot = partitionWriter.finish();
-        RowIndexEntry entry = TrieIndexEntry.create(currentStartPosition, trieRoot,
-                                                    currentPartitionLevelDeletion,
-                                                    partitionWriter.rowIndexCount);
+        RowIndexEntry<RowIndexReader.IndexInfo> entry = TrieIndexEntry.create(currentStartPosition, trieRoot,
+                                                                              currentPartitionLevelDeletion,
+                                                                              partitionWriter.rowIndexCount);
 
         long endPosition = dataFile.position();
         long partitionSize = endPosition - currentStartPosition;
@@ -265,7 +266,7 @@ public class TrieIndexSSTableWriter extends SSTableWriter
     }
 
     @Override
-    public SSTableReader openEarly()
+    public boolean openEarly(Consumer<SSTableReader> callWhenReady)
     {
         long dataLength = dataFile.position();
 
@@ -423,6 +424,34 @@ public class TrieIndexSSTableWriter extends SSTableWriter
         return dataFile.getEstimatedOnDiskBytesWritten();
     }
 
+    @Override
+    public RowIndexEntry<RowIndexReader.IndexInfo> append(UnfilteredRowIterator iterator)
+    {
+        if (iterator.isEmpty())
+            return null;
+
+        try
+        {
+            if (!startPartition(iterator.partitionKey(), iterator.partitionLevelDeletion()))
+                return null;
+
+            if (!iterator.staticRow().isEmpty())
+                addUnfiltered(iterator.staticRow());
+
+            while (iterator.hasNext())
+            {
+                Unfiltered unfiltered = iterator.next();
+                addUnfiltered(unfiltered);
+            }
+
+            return endPartition();
+        }
+        catch (IOException e)
+        {
+            throw new FSWriteError(e, dataFile.getPath());
+        }
+    }
+
     /**
      * Encapsulates writing the index and filter for an SSTable. The state of this object is not valid until it has been closed.
      */
@@ -451,7 +480,7 @@ public class TrieIndexSSTableWriter extends SSTableWriter
             dataFile.setFileSyncListener(() -> partitionIndex.markDataSynced(dataFile.getLastFlushOffset()));
         }
 
-        public long append(DecoratedKey key, RowIndexEntry<IndexInfo> indexEntry) throws IOException
+        public long append(DecoratedKey key, RowIndexEntry<RowIndexReader.IndexInfo> indexEntry) throws IOException
         {
             bf.add(key);
             long position;
@@ -461,7 +490,7 @@ public class TrieIndexSSTableWriter extends SSTableWriter
                 try
                 {
                     ByteBufferUtil.writeWithShortLength(key.getKey(), rowIndexFile);
-                    indexEntry.serialize(rowIndexFile, rowIndexFile.position());
+                    ((TrieIndexEntry) indexEntry).serialize(rowIndexFile, rowIndexFile.position());
                 }
                 catch (IOException e)
                 {

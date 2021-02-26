@@ -84,12 +84,6 @@ public class TrieIndexFormat implements SSTableFormat
     }
 
     @Override
-    public boolean validateVersion(String ver)
-    {
-        return ver != null && VALIDATION.matcher(ver).matches();
-    }
-
-    @Override
     public SSTableWriter.Factory getWriterFactory()
     {
         return writerFactory;
@@ -160,7 +154,6 @@ public class TrieIndexFormat implements SSTableFormat
             }
         }
 
-        @Override
         public Pair<DecoratedKey, DecoratedKey> getKeyRange(Descriptor descriptor, IPartitioner partitioner) throws IOException
         {
             File indexFile = new File(descriptor.filenameFor(Component.PARTITION_INDEX));
@@ -173,7 +166,6 @@ public class TrieIndexFormat implements SSTableFormat
             }
         }
 
-        @Override
         public Set<Component> requiredComponents()
         {
             return REQUIRED_COMPONENTS;

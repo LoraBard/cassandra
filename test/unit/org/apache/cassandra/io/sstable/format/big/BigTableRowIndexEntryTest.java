@@ -799,7 +799,7 @@ public class BigTableRowIndexEntryTest extends CQLTester
                 };
             }
 
-            public int columnsIndexCount()
+            public int rowIndexCount()
             {
                 return indexes.size();
             }

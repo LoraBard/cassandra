@@ -27,17 +27,21 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.BufferDecoratedKey;
+import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.Slices;
+import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.SerializationHelper;
+import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
@@ -46,6 +50,7 @@ import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.Downsampling;
+import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.IndexFileEntry;
 import org.apache.cassandra.io.sstable.format.PartitionIndexIterator;
 import org.apache.cassandra.io.sstable.format.RowIndexEntry;
@@ -189,53 +194,6 @@ class TrieIndexSSTableReader extends SSTableReader
         super.addTo(identities);
         rowIndexFile.addTo(identities);
         partitionIndex.addTo(identities);
-    }
-
-    @Override
-    public void verifyComponent(Component component) throws IOException
-    {
-        switch (component.type)
-        {
-            case PARTITION_INDEX:
-                verifyPartitionIndex();
-                break;
-            case ROW_INDEX:
-                verifyRowIndex();
-                break;
-            case FILTER:
-                verifyBloomFilter();
-                break;
-            default:
-                // just ignore anything else
-                break;
-        }
-    }
-
-    private void verifyBloomFilter() throws IOException
-    {
-        try (DataInputStream stream = new DataInputStream(new BufferedInputStream(Files.newInputStream(Paths.get(descriptor.filenameFor(Component.FILTER)))));
-             IFilter bf = BloomFilterSerializer.deserialize(stream, descriptor.version.hasOldBfFormat()))
-        {}
-    }
-
-    private void verifyRowIndex() throws IOException
-    {
-        try (PartitionIndexIterator keyIter = TrieIndexFormat.readerFactory.keyIterator(descriptor, metadata()))
-        {
-            while (keyIter.advance()); // no-op
-        }
-    }
-
-    private void verifyPartitionIndex() throws IOException
-    {
-        StatsMetadata statsMetadata = (StatsMetadata) descriptor.getMetadataSerializer().deserialize(descriptor, MetadataType.STATS);
-        try (FileHandle.Builder builder = SSTableReaderBuilder.forVerify(SSTableReaderBuilder.defaultIndexHandleBuilder(descriptor, Component.PARTITION_INDEX));
-             PartitionIndex index = PartitionIndex.load(builder, metadata().partitioner, false);
-             IndexPosIterator iter = index.allKeysIterator())
-        {
-            while (iter.nextIndexPos() != PartitionIndex.NOT_FOUND)
-            {}
-        }
     }
 
     public long estimatedKeys()

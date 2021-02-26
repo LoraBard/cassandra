@@ -485,7 +485,7 @@ public class BigTableRowIndexEntry extends RowIndexEntry<IndexInfo> implements I
         }
 
         @Override
-        public int columnsIndexCount()
+        public int rowIndexCount()
         {
             return columnsIndex.length;
         }
@@ -555,7 +555,7 @@ public class BigTableRowIndexEntry extends RowIndexEntry<IndexInfo> implements I
 
             out.writeUnsignedVInt(headerLength);
             DeletionTime.serializer.serialize(deletionTime, out);
-            out.writeUnsignedVInt(columnsIndexCount());
+            out.writeUnsignedVInt(rowIndexCount());
 
             for (IndexInfo indexInfo : columnsIndex)
                 idxInfoSerializer.serialize(indexInfo, out);
@@ -642,7 +642,7 @@ public class BigTableRowIndexEntry extends RowIndexEntry<IndexInfo> implements I
         }
 
         @Override
-        public int columnsIndexCount()
+        public int rowIndexCount()
         {
             return columnsIndexCount;
         }

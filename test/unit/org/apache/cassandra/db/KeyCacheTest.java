@@ -140,8 +140,8 @@ public class KeyCacheTest
             BigTableRowIndexEntry expected = entry.getValue();
             BigTableRowIndexEntry actual = CacheService.instance.keyCache.get(entry.getKey());
             assertEquals(expected.position, actual.position);
-            assertEquals(expected.columnsIndexCount(), actual.columnsIndexCount());
-            for (int i = 0; i < expected.columnsIndexCount(); i++)
+            assertEquals(expected.rowIndexCount(), actual.rowIndexCount());
+            for (int i = 0; i < expected.rowIndexCount(); i++)
             {
                 SSTableReader actualSstr = readerForKey(entry.getKey());
                 try (BigTableRowIndexEntry.IndexInfoRetriever actualIir = actual.openWithIndex(actualSstr.getIndexFile()))

@@ -690,6 +690,14 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
     public abstract PartitionIndexIterator allKeysIterator() throws IOException;
 
+    public abstract PartitionIndexIterator coveredKeysIterator(PartitionPosition left, boolean inclusiveLeft, PartitionPosition right, boolean inclusiveRight) throws IOException;
+
+
+    public PartitionIndexIterator coveredKeysIterator(AbstractBounds<PartitionPosition> bounds) throws IOException
+    {
+        return coveredKeysIterator(bounds.left, bounds.inclusiveLeft(), bounds.right, bounds.inclusiveRight());
+    }
+
     public boolean equals(Object that)
     {
         return that instanceof SSTableReader && ((SSTableReader) that).descriptor.equals(this.descriptor);
@@ -1443,7 +1451,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             }
 
             @SuppressWarnings("resource")   // Closed with iterator (whose constructor can't throw)
-            PartitionReader reader = reader(dataFileInput, shouldCloseFile, indexEntry, helper, slices, reversed);
+            PartitionReader reader = open(dataFileInput, shouldCloseFile, indexEntry, helper, slices, reversed);
             return new AbstractUnfilteredRowIterator(metadata(), key, partitionLevelDeletion, selectedColumns.fetchedColumns(), staticRow, reversed, stats())
             {
                 protected Unfiltered computeNext()

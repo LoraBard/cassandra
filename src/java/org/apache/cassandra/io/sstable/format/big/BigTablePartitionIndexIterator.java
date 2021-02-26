@@ -21,6 +21,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import javax.annotation.concurrent.NotThreadSafe;
 
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.io.sstable.format.PartitionIndexIterator;
 import org.apache.cassandra.io.sstable.format.big.BigTableRowIndexEntry.IndexSerializer;
 import org.apache.cassandra.io.util.FileHandle;
@@ -35,24 +37,30 @@ public class BigTablePartitionIndexIterator implements PartitionIndexIterator
     private final RandomAccessReader reader;
     private final IndexSerializer<IndexInfo> rowIndexEntrySerializer;
     private final long initialPosition;
+    private final PartitionPosition finalPosition;
+    private final boolean finalPositionInclusive;
 
     private ByteBuffer key;
     private long dataPosition;
 
     private BigTablePartitionIndexIterator(FileHandle indexFile,
                                            RandomAccessReader reader,
-                                           IndexSerializer<IndexInfo> rowIndexEntrySerializer)
+                                           IndexSerializer<IndexInfo> rowIndexEntrySerializer,
+                                           PartitionPosition finalPosition,
+                                           boolean finalPositionInclusive)
     {
         this.indexFile = indexFile;
         this.reader = reader;
         this.rowIndexEntrySerializer = rowIndexEntrySerializer;
         this.initialPosition = reader.getFilePointer();
+        this.finalPosition = finalPosition;
+        this.finalPositionInclusive = finalPositionInclusive;
     }
 
     public static BigTablePartitionIndexIterator create(RandomAccessReader reader, IndexSerializer<IndexInfo> serializer)
     throws IOException
     {
-        BigTablePartitionIndexIterator iterator = new BigTablePartitionIndexIterator(null, reader, serializer);
+        BigTablePartitionIndexIterator iterator = new BigTablePartitionIndexIterator(null, reader, serializer, null, false);
         try
         {
             iterator.advance();
@@ -69,6 +77,14 @@ public class BigTablePartitionIndexIterator implements PartitionIndexIterator
     public static BigTablePartitionIndexIterator create(FileHandle indexFile, IndexSerializer<IndexInfo> serializer)
     throws IOException
     {
+        return create(indexFile, serializer, null, false);
+    }
+
+    @SuppressWarnings({ "resource" })
+    public static BigTablePartitionIndexIterator create(FileHandle indexFile, IndexSerializer<IndexInfo> serializer,
+                                                        PartitionPosition finalPosition, boolean finalPositionInclusive)
+    throws IOException
+    {
         FileHandle iFile = null;
         RandomAccessReader reader = null;
         BigTablePartitionIndexIterator iterator = null;
@@ -76,7 +92,7 @@ public class BigTablePartitionIndexIterator implements PartitionIndexIterator
         {
             iFile = indexFile.sharedCopy();
             reader = iFile.createReader();
-            iterator = new BigTablePartitionIndexIterator(iFile, reader, serializer);
+            iterator = new BigTablePartitionIndexIterator(iFile, reader, serializer, finalPosition, finalPositionInclusive);
             iterator.advance();
             return iterator;
         }
@@ -107,18 +123,29 @@ public class BigTablePartitionIndexIterator implements PartitionIndexIterator
     @Override
     public boolean advance() throws IOException
     {
+        if (dataPosition < 0)
+            return false;
+
         if (!reader.isEOF())
         {
             key = ByteBufferUtil.readWithShortLength(reader);
             dataPosition = rowIndexEntrySerializer.deserializePositionAndSkip(reader);
-            return true;
+
+            if (finalPosition != null)
+            {
+                int finalPostionToCurPosition = finalPosition.compareTo(finalPosition.getPartitioner().decorateKey(key));
+                if (finalPostionToCurPosition > 0 || finalPositionInclusive && finalPostionToCurPosition == 0)
+                    return true;
+            }
+            else
+            {
+                return true;
+            }
         }
-        else
-        {
-            dataPosition = -1;
-            key = null;
-            return false;
-        }
+
+        dataPosition = -1;
+        key = null;
+        return false;
     }
 
     @Override

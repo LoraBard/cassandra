@@ -42,7 +42,7 @@ public class RowIndexEntry<T> implements IMeasurableMemory
      */
     public boolean isIndexed()
     {
-        return columnsIndexCount() > 1;
+        return rowIndexCount() > 1;
     }
 
     public DeletionTime deletionTime()
@@ -50,7 +50,7 @@ public class RowIndexEntry<T> implements IMeasurableMemory
         throw new UnsupportedOperationException();
     }
 
-    public int columnsIndexCount()
+    public int rowIndexCount()
     {
         return 0;
     }
