@@ -1397,13 +1397,24 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
                                                     boolean permitMatchPastLast,
                                                     SSTableReadsListener listener);
 
-    public abstract UnfilteredRowIterator iterator(DecoratedKey key,
-                                                   Slices slices,
-                                                   ColumnFilter selectedColumns,
-                                                   boolean reversed,
-                                                   SSTableReadsListener listener);
+    public UnfilteredRowIterator iterator(DecoratedKey key,
+                                          Slices slices,
+                                          ColumnFilter selectedColumns,
+                                          boolean reversed,
+                                          SSTableReadsListener listener)
+    {
+        RowIndexEntry<?> rie = getPosition(key, Operator.EQ, true, false, listener);
+        return iterator(null, key, rie, slices, selectedColumns, reversed);
+    }
 
-    public abstract UnfilteredRowIterator simpleIterator(Supplier<FileDataInput> dfile, DecoratedKey key, boolean tombstoneOnly);
+    @SuppressWarnings("resource") // caller to close
+    public UnfilteredRowIterator simpleIterator(Supplier<FileDataInput> dfile, DecoratedKey key, boolean tombstoneOnly)
+    {
+        BigTableRowIndexEntry position = getPosition(key, Operator.EQ, true, false, SSTableReadsListener.NOOP_LISTENER);
+        if (position == null)
+            return null;
+        return SSTableIdentityIterator.create(this, dfile.get(), position, key, tombstoneOnly);
+    }
 
     @SuppressWarnings("resource")   // Closed by caller
     public UnfilteredRowIterator iterator(FileDataInput dataFileInput,
@@ -1657,11 +1668,14 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     }
 
     /**
-     * Direct I/O SSTableScanner over the entirety of the sstable..
+     * Direct I/O SSTableScanner over the full sstable.
      *
-     * @return A Scanner over the full content of the SSTable.
+     * @return A Scanner for reading the full SSTable.
      */
-    public abstract ISSTableScanner getScanner();
+    public ISSTableScanner getScanner()
+    {
+        return SSTableScanner.getScanner(this);
+    }
 
     /**
      * Direct I/O SSTableScanner over a defined collection of ranges of tokens.
@@ -1669,23 +1683,29 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
      * @param ranges the range of keys to cover
      * @return A Scanner for seeking over the rows of the SSTable.
      */
-    public abstract ISSTableScanner getScanner(Collection<Range<Token>> ranges);
+    public ISSTableScanner getScanner(Collection<Range<Token>> ranges)
+    {
+        if (ranges != null)
+            return SSTableScanner.getScanner(this, ranges);
+        else
+            return getScanner();
+    }
 
     /**
      * Direct I/O SSTableScanner over an iterator of bounds.
      *
-     * @param rangeIterator the keys to cover
+     * @param boundsIterator the keys to cover
      * @return A Scanner for seeking over the rows of the SSTable.
      */
-    public abstract ISSTableScanner getScanner(Iterator<AbstractBounds<PartitionPosition>> rangeIterator);
+    public ISSTableScanner getScanner(Iterator<AbstractBounds<PartitionPosition>> boundsIterator)
+    {
+        return SSTableScanner.getScanner(this, boundsIterator);
+    }
 
-    /**
-     * @param columns the columns to return.
-     * @param dataRange filter to use when reading the columns
-     * @param listener a listener used to handle internal read events
-     * @return A Scanner for seeking over the rows of the SSTable.
-     */
-    public abstract ISSTableScanner getScanner(ColumnFilter columns, DataRange dataRange, SSTableReadsListener listener);
+    public ISSTableScanner getScanner(ColumnFilter columns, DataRange dataRange, SSTableReadsListener listener)
+    {
+        return SSTableScanner.getScanner(this, columns, dataRange, listener);
+    }
 
     public FileDataInput getFileDataInput(long position)
     {

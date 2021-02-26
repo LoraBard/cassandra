@@ -253,7 +253,7 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
         }
 
         if (sync)
-            syncDataOnlyInternal();
+            syncDataOnlyInternal(forceSyncWithMetadata);
 
         // Remember that we wrote, so we don't write it again on next flush().
         resetBuffer();
