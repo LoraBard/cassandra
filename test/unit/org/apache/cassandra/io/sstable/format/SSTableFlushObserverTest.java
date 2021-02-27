@@ -202,6 +202,18 @@ public class SSTableFlushObserverTest
         }
 
         @Override
+        public void partitionLevelDeletion(DeletionTime deletionTime, long position)
+        {
+
+        }
+
+        @Override
+        public void staticRow(Row staticRow, long position)
+        {
+
+        }
+
+        @Override
         public void nextUnfilteredCluster(Unfiltered row)
         {
             if (row.isRow())

@@ -1410,7 +1410,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     @SuppressWarnings("resource") // caller to close
     public UnfilteredRowIterator simpleIterator(Supplier<FileDataInput> dfile, DecoratedKey key, boolean tombstoneOnly)
     {
-        BigTableRowIndexEntry position = getPosition(key, Operator.EQ, true, false, SSTableReadsListener.NOOP_LISTENER);
+        RowIndexEntry<?> position = getPosition(key, Operator.EQ, true, false, SSTableReadsListener.NOOP_LISTENER);
         if (position == null)
             return null;
         return SSTableIdentityIterator.create(this, dfile.get(), position, key, tombstoneOnly);
