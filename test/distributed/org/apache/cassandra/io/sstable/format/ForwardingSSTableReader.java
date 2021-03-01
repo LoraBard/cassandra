@@ -260,19 +260,19 @@ public abstract class ForwardingSSTableReader extends SSTableReader
     }
 
     @Override
-    public void cacheKey(DecoratedKey key, BigTableRowIndexEntry info)
+    public void cacheKey(DecoratedKey key, RowIndexEntry<?> info)
     {
         delegate.cacheKey(key, info);
     }
 
     @Override
-    public BigTableRowIndexEntry getCachedPosition(DecoratedKey key, boolean updateStats)
+    public RowIndexEntry<?> getCachedPosition(DecoratedKey key, boolean updateStats)
     {
         return delegate.getCachedPosition(key, updateStats);
     }
 
     @Override
-    protected BigTableRowIndexEntry getCachedPosition(KeyCacheKey unifiedKey, boolean updateStats)
+    protected RowIndexEntry<?> getCachedPosition(KeyCacheKey unifiedKey, boolean updateStats)
     {
         return delegate.getCachedPosition(unifiedKey, updateStats);
     }
@@ -476,7 +476,7 @@ public abstract class ForwardingSSTableReader extends SSTableReader
     }
 
     @Override
-    public InstrumentingCache<KeyCacheKey, BigTableRowIndexEntry> getKeyCache()
+    public InstrumentingCache<KeyCacheKey, RowIndexEntry<?>> getKeyCache()
     {
         return delegate.getKeyCache();
     }

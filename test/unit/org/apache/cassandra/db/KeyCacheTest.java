@@ -118,7 +118,7 @@ public class KeyCacheTest
             KeyCacheKey k = iter.next();
             if (k.desc.ksname.equals(KEYSPACE1) && k.desc.cfname.equals(cf))
             {
-                BigTableRowIndexEntry rie = CacheService.instance.keyCache.get(k);
+                BigTableRowIndexEntry rie = (BigTableRowIndexEntry) CacheService.instance.keyCache.get(k);
                 savedMap.put(k, rie);
                 SSTableReader sstr = readerForKey(k);
                 savedInfoMap.put(k, rie.openWithIndex(sstr.getIndexFile()));
@@ -138,7 +138,7 @@ public class KeyCacheTest
         for (Map.Entry<KeyCacheKey, BigTableRowIndexEntry> entry : savedMap.entrySet())
         {
             BigTableRowIndexEntry expected = entry.getValue();
-            BigTableRowIndexEntry actual = CacheService.instance.keyCache.get(entry.getKey());
+            BigTableRowIndexEntry actual = (BigTableRowIndexEntry) CacheService.instance.keyCache.get(entry.getKey());
             assertEquals(expected.position, actual.position);
             assertEquals(expected.rowIndexCount(), actual.rowIndexCount());
             for (int i = 0; i < expected.rowIndexCount(); i++)

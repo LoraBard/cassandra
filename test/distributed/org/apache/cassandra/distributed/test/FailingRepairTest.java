@@ -280,6 +280,12 @@ public class FailingRepairTest extends TestBaseImpl implements Serializable
             throw new IOException("Fail");
         }
 
+        @Override
+        public PartitionIndexIterator coveredKeysIterator(PartitionPosition left, boolean inclusiveLeft, PartitionPosition right, boolean inclusiveRight) throws IOException
+        {
+            throw new IOException("Fail");
+        }
+
         public ISSTableScanner getScanner()
         {
             return new FailingISSTableScanner();
