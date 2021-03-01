@@ -372,7 +372,6 @@ public class TrieIndexSSTableWriter extends SSTableWriter
 
         protected Throwable doCommit(Throwable accumulate)
         {
-            accumulate = writerTidier.commit(accumulate);
             accumulate = dataFile.commit(accumulate);
             accumulate = iwriter.commit(accumulate);
             return accumulate;
@@ -388,7 +387,6 @@ public class TrieIndexSSTableWriter extends SSTableWriter
 
         protected Throwable doAbort(Throwable accumulate)
         {
-            accumulate = writerTidier.abort(accumulate);
             accumulate = iwriter.abort(accumulate);
             accumulate = dataFile.abort(accumulate);
             return accumulate;
