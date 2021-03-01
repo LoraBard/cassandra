@@ -28,6 +28,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.transform.RTBoundValidator;
+import org.apache.cassandra.io.sstable.format.RowIndexEntry;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReadsListener;
 import org.apache.cassandra.io.sstable.format.big.BigTableRowIndexEntry;
@@ -194,27 +195,22 @@ public class UnfilteredRowIteratorWithLowerBound extends LazilyInitializedUnfilt
      */
     private ClusteringBound<?> getKeyCacheLowerBound()
     {
-        BigTableRowIndexEntry rowIndexEntry = sstable.getCachedPosition(partitionKey(), false);
-        if (rowIndexEntry == null || !rowIndexEntry.indexOnHeap())
-            return null;
-
-        try (BigTableRowIndexEntry.IndexInfoRetriever onHeapRetriever = rowIndexEntry.openWithIndex(null))
+        RowIndexEntry<?> rowIndexEntry = sstable.getCachedPosition(partitionKey(), false);
+        if (rowIndexEntry != null && rowIndexEntry.indexOnHeap())
         {
-            IndexInfo column = onHeapRetriever.columnsIndex(isReverseOrder ? rowIndexEntry.rowIndexCount() - 1 : 0);
-            ClusteringPrefix<?> lowerBoundPrefix = isReverseOrder ? column.lastName : column.firstName;
-
-            assert lowerBoundPrefix.getRawValues().length <= metadata().comparator.size() :
-            String.format("Unexpected number of clustering values %d, expected %d or fewer for %s",
-                          lowerBoundPrefix.getRawValues().length,
-                          metadata().comparator.size(),
-                          sstable.getFilename());
-
-            return createArtificialLowerBound(isReverseOrder, lowerBoundPrefix);
+            ClusteringPrefix<?> lowerBoundPrefix = !isReverseOrder ? rowIndexEntry.getMin() : rowIndexEntry.getMax();
+            if (lowerBoundPrefix != null)
+            {
+                assert lowerBoundPrefix.getRawValues().length <= metadata().comparator.size() :
+                        String.format("Unexpected number of clustering values %d, expected %d or fewer for %s",
+                                      lowerBoundPrefix.getRawValues().length,
+                                      metadata().comparator.size(),
+                                      sstable.getFilename());
+                return createArtificialLowerBound(isReverseOrder, lowerBoundPrefix);
+            }
         }
-        catch (IOException e)
-        {
-            throw new RuntimeException("should never occur", e);
-        }
+
+        return null;
     }
 
     /**

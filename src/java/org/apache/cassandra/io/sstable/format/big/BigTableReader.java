@@ -23,6 +23,7 @@ import java.util.*;
 import java.util.function.Supplier;
 
 import org.apache.cassandra.io.sstable.format.PartitionIndexIterator;
+import org.apache.cassandra.io.sstable.format.RowIndexEntry;
 import org.apache.cassandra.io.sstable.format.SSTableReaderBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -100,7 +101,7 @@ public class BigTableReader extends SSTableReader
      * @param updateCacheAndStats true if updating stats and cache
      * @return The index entry corresponding to the key, or null if the key is not present
      */
-    protected BigTableRowIndexEntry getPosition(PartitionPosition key,
+    protected RowIndexEntry<?> getPosition(PartitionPosition key,
                                                 Operator op,
                                                 boolean updateCacheAndStats,
                                                 boolean permitMatchPastLast,
@@ -121,7 +122,7 @@ public class BigTableReader extends SSTableReader
         if ((op == Operator.EQ || op == Operator.GE) && (key instanceof DecoratedKey))
         {
             DecoratedKey decoratedKey = (DecoratedKey) key;
-            BigTableRowIndexEntry cachedPosition = getCachedPosition(decoratedKey, updateCacheAndStats);
+            RowIndexEntry<?> cachedPosition = getCachedPosition(decoratedKey, updateCacheAndStats);
             if (cachedPosition != null)
             {
                 listener.onSSTableSelected(this, cachedPosition, SelectionReason.KEY_CACHE_HIT);

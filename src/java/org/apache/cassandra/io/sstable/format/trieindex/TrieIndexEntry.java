@@ -19,6 +19,7 @@ package org.apache.cassandra.io.sstable.format.trieindex;
 
 import java.io.IOException;
 
+import org.apache.cassandra.db.ClusteringPrefix;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.io.sstable.format.RowIndexEntry;
 import org.apache.cassandra.io.util.DataInputPlus;

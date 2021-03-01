@@ -24,6 +24,7 @@ import java.util.List;
 import com.codahale.metrics.Histogram;
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.ClusteringPrefix;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.TypeSizes;
@@ -157,6 +158,34 @@ public class BigTableRowIndexEntry extends RowIndexEntry<IndexInfo> implements I
     public boolean indexOnHeap()
     {
         return false;
+    }
+
+    @Override
+    public ClusteringPrefix<?> getMin()
+    {
+        try (IndexInfoRetriever onHeapRetriever = openWithIndex(null))
+        {
+            IndexInfo column = onHeapRetriever.columnsIndex(0);
+            return column.firstName;
+        }
+        catch (IOException e)
+        {
+            throw new AssertionError("Failed to read min column from index", e);
+        }
+    }
+
+    @Override
+    public ClusteringPrefix<?> getMax()
+    {
+        try (IndexInfoRetriever onHeapRetriever = openWithIndex(null))
+        {
+            IndexInfo column = onHeapRetriever.columnsIndex(rowIndexCount() - 1);
+            return column.lastName;
+        }
+        catch (IOException e)
+        {
+            throw new AssertionError("Failed to read max column from index", e);
+        }
     }
 
     @Override

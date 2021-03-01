@@ -215,7 +215,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     protected final IFilter bf;
     public final IndexSummary indexSummary;
 
-    protected InstrumentingCache<KeyCacheKey, BigTableRowIndexEntry> keyCache;
+    protected InstrumentingCache<KeyCacheKey, RowIndexEntry<?>> keyCache;
 
     protected final BloomFilterTracker bloomFilterTracker = new BloomFilterTracker();
 
@@ -718,7 +718,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         // under normal operation we can do this at any time, but SSTR is also used outside C* proper,
         // e.g. by BulkLoader, which does not initialize the cache.  As a kludge, we set up the cache
         // here when we know we're being wired into the rest of the server infrastructure.
-        InstrumentingCache<KeyCacheKey, BigTableRowIndexEntry> maybeKeyCache = CacheService.instance.keyCache;
+        InstrumentingCache<KeyCacheKey, RowIndexEntry<?>> maybeKeyCache = CacheService.instance.keyCache;
         if (maybeKeyCache.getCapacity() > 0)
             keyCache = maybeKeyCache;
 
@@ -1318,7 +1318,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         return new KeyCacheKey(metadata(), descriptor, key.getKey());
     }
 
-    public void cacheKey(DecoratedKey key, BigTableRowIndexEntry info)
+    public void cacheKey(DecoratedKey key, RowIndexEntry<?> info)
     {
         CachingParams caching = metadata().params.caching;
 
@@ -1330,20 +1330,20 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         keyCache.put(cacheKey, info);
     }
 
-    public BigTableRowIndexEntry getCachedPosition(DecoratedKey key, boolean updateStats)
+    public RowIndexEntry<?> getCachedPosition(DecoratedKey key, boolean updateStats)
     {
         if (isKeyCacheEnabled())
             return getCachedPosition(new KeyCacheKey(metadata(), descriptor, key.getKey()), updateStats);
         return null;
     }
 
-    protected BigTableRowIndexEntry getCachedPosition(KeyCacheKey unifiedKey, boolean updateStats)
+    protected RowIndexEntry<?> getCachedPosition(KeyCacheKey unifiedKey, boolean updateStats)
     {
         if (isKeyCacheEnabled())
         {
             if (updateStats)
             {
-                BigTableRowIndexEntry cachedEntry = keyCache.get(unifiedKey);
+                RowIndexEntry<?> cachedEntry = keyCache.get(unifiedKey);
                 keyCacheRequest.incrementAndGet();
                 if (cachedEntry != null)
                 {
@@ -1830,7 +1830,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         return bloomFilterTracker.getRecentTruePositiveCount();
     }
 
-    public InstrumentingCache<KeyCacheKey, BigTableRowIndexEntry> getKeyCache()
+    public InstrumentingCache<KeyCacheKey, RowIndexEntry<?>> getKeyCache()
     {
         return keyCache;
     }

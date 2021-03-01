@@ -18,8 +18,15 @@
 
 package org.apache.cassandra.io.sstable.format;
 
+import java.io.IOException;
+
 import org.apache.cassandra.cache.IMeasurableMemory;
+import org.apache.cassandra.db.ClusteringPrefix;
 import org.apache.cassandra.db.DeletionTime;
+import org.apache.cassandra.db.SerializationHeader;
+import org.apache.cassandra.io.sstable.format.big.BigTableRowIndexEntry;
+import org.apache.cassandra.io.sstable.format.big.IndexInfo;
+import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ObjectSizes;
 
 /**
@@ -59,5 +66,25 @@ public class RowIndexEntry<T> implements IMeasurableMemory
     public long unsharedHeapSize()
     {
         return 0;
+    }
+
+    public void serializeForCache(DataOutputPlus out) throws IOException
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    public boolean indexOnHeap()
+    {
+        return false;
+    }
+
+    public ClusteringPrefix<?> getMin()
+    {
+        return null;
+    }
+
+    public ClusteringPrefix<?> getMax()
+    {
+        return null;
     }
 }

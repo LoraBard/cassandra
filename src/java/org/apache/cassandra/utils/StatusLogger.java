@@ -20,6 +20,7 @@ package org.apache.cassandra.utils;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.cassandra.cache.*;
+import org.apache.cassandra.io.sstable.format.RowIndexEntry;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.ThreadPoolMetrics;
 
@@ -92,7 +93,7 @@ public class StatusLogger
                                   "MessagingService", "n/a", pendingLargeMessages + "/" + pendingSmallMessages));
 
         // Global key/row cache information
-        AutoSavingCache<KeyCacheKey, BigTableRowIndexEntry> keyCache = CacheService.instance.keyCache;
+        AutoSavingCache<KeyCacheKey, RowIndexEntry<?>> keyCache = CacheService.instance.keyCache;
         AutoSavingCache<RowCacheKey, IRowCacheEntry> rowCache = CacheService.instance.rowCache;
 
         int keyCacheKeysToSave = DatabaseDescriptor.getKeyCacheKeysToSave();

@@ -70,7 +70,7 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
     private final boolean eagerWriterMetaRelease; // true if the writer metadata should be released when switch is called
 
     private SSTableWriter writer;
-    private Map<DecoratedKey, BigTableRowIndexEntry> cachedKeys = new HashMap<>();
+    private Map<DecoratedKey, RowIndexEntry<?>> cachedKeys = new HashMap<>();
 
     // for testing (TODO: remove when have byteman setup)
     private boolean throwEarly, throwLate;
@@ -142,7 +142,7 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
     }
 
     // attempts to append the row, if fails resets the writer position
-    public BigTableRowIndexEntry tryAppend(UnfilteredRowIterator partition)
+    public RowIndexEntry<?> tryAppend(UnfilteredRowIterator partition)
     {
         writer.mark();
         try
@@ -222,7 +222,7 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
         if (!cachedKeys.isEmpty())
         {
             invalidateKeys = new ArrayList<>(cachedKeys.size());
-            for (Map.Entry<DecoratedKey, BigTableRowIndexEntry> cacheKey : cachedKeys.entrySet())
+            for (Map.Entry<DecoratedKey, RowIndexEntry<?>> cacheKey : cachedKeys.entrySet())
             {
                 invalidateKeys.add(cacheKey.getKey());
                 newReader.cacheKey(cacheKey.getKey(), cacheKey.getValue());
