@@ -1397,15 +1397,11 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
                                                     boolean permitMatchPastLast,
                                                     SSTableReadsListener listener);
 
-    public UnfilteredRowIterator iterator(DecoratedKey key,
-                                          Slices slices,
-                                          ColumnFilter selectedColumns,
-                                          boolean reversed,
-                                          SSTableReadsListener listener)
-    {
-        RowIndexEntry<?> rie = getPosition(key, Operator.EQ, true, false, listener);
-        return iterator(null, key, rie, slices, selectedColumns, reversed);
-    }
+    public abstract UnfilteredRowIterator iterator(DecoratedKey key,
+                                                   Slices slices,
+                                                   ColumnFilter selectedColumns,
+                                                   boolean reversed,
+                                                   SSTableReadsListener listener);
 
     @SuppressWarnings("resource") // caller to close
     public UnfilteredRowIterator simpleIterator(Supplier<FileDataInput> dfile, DecoratedKey key, boolean tombstoneOnly)
@@ -1414,125 +1410,6 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         if (position == null)
             return null;
         return SSTableIdentityIterator.create(this, dfile.get(), position, key, tombstoneOnly);
-    }
-
-    @SuppressWarnings("resource")   // Closed by caller
-    public UnfilteredRowIterator iterator(FileDataInput dataFileInput,
-                                          DecoratedKey key,
-                                          RowIndexEntry<?> indexEntry,
-                                          Slices slices,
-                                          ColumnFilter selectedColumns,
-                                          boolean reversed)
-    {
-        if (indexEntry == null)
-            return UnfilteredRowIterators.noRowsIterator(metadata(), key, Rows.EMPTY_STATIC_ROW, DeletionTime.LIVE, reversed);
-
-        boolean shouldCloseFile = false;
-        if (dataFileInput == null)
-        {
-            dataFileInput = openDataReader();
-            shouldCloseFile = true;
-        }
-
-        DeletionTime partitionLevelDeletion;
-        Row staticRow;
-
-        DeserializationHelper helper = new DeserializationHelper(metadata(), descriptor.version.correspondingMessagingVersion(), DeserializationHelper.Flag.LOCAL, selectedColumns);
-        try
-        {
-            // We seek to the beginning to the partition if either:
-            //   - the partition is not indexed; we then have a single block to read anyway
-            //     (and we need to read the partition deletion time).
-            //   - we're querying static columns.
-            boolean needSeekAtPartitionStart = !indexEntry.isIndexed() || !selectedColumns.fetchedColumns().statics.isEmpty();
-
-            if (needSeekAtPartitionStart)
-            {
-                // Not indexed (or is reading static), set to the beginning of the partition and read partition level deletion there
-                dataFileInput.seek(indexEntry.position);
-
-                ByteBufferUtil.skipShortLength(dataFileInput); // Skip partition key
-                partitionLevelDeletion = DeletionTime.serializer.deserialize(dataFileInput);
-                staticRow = readStaticRow(this, dataFileInput, helper, selectedColumns.fetchedColumns().statics);
-            }
-            else
-            {
-                partitionLevelDeletion = indexEntry.deletionTime();
-                staticRow = Rows.EMPTY_STATIC_ROW;
-            }
-
-            @SuppressWarnings("resource")   // Closed with iterator (whose constructor can't throw)
-            PartitionReader reader = open(dataFileInput, shouldCloseFile, indexEntry, helper, slices, reversed);
-            return new AbstractUnfilteredRowIterator(metadata(), key, partitionLevelDeletion, selectedColumns.fetchedColumns(), staticRow, reversed, stats())
-            {
-                protected Unfiltered computeNext()
-                {
-                    Unfiltered next;
-                    try
-                    {
-                        next = reader.next();
-                    }
-                    catch (IOException | IndexOutOfBoundsException e)
-                    {
-                        markSuspect();
-                        throw new CorruptSSTableException(e, dfile.path());
-                    }
-
-                    if (next != null)
-                        return next;
-                    else
-                        return endOfData();
-                }
-
-                public void close()
-                {
-                    try
-                    {
-                        reader.close();
-                    }
-                    catch (IOException e)
-                    {
-                        markSuspect();
-                        throw new CorruptSSTableException(e, dfile.path());
-                    }
-                }
-            };
-        }
-        catch (IOException e)
-        {
-            markSuspect();
-            if (shouldCloseFile)
-            {
-                try
-                {
-                    dataFileInput.close();
-                }
-                catch (IOException suppressed)
-                {
-                    e.addSuppressed(suppressed);
-                }
-            }
-            throw new CorruptSSTableException(e, dfile.path());
-        }
-    }
-
-    static Row readStaticRow(SSTableReader sstable,
-                             FileDataInput file,
-                             DeserializationHelper helper,
-                             Columns statics) throws IOException
-    {
-        if (!sstable.header.hasStatic())
-            return Rows.EMPTY_STATIC_ROW;
-
-        if (statics.isEmpty())
-        {
-            UnfilteredSerializer.serializer.skipStaticRow(file, sstable.header, helper);
-            return Rows.EMPTY_STATIC_ROW;
-        }
-        else
-        {
-            return UnfilteredSerializer.serializer.deserializeStaticRow(file, sstable.header, helper);
-        }
     }
 
     /**

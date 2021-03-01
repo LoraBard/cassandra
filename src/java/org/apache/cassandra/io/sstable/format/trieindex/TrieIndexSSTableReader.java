@@ -23,15 +23,26 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.db.Columns;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.Slices;
+import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.rows.AbstractUnfilteredRowIterator;
 import org.apache.cassandra.db.rows.DeserializationHelper;
+import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.Rows;
+import org.apache.cassandra.db.rows.Unfiltered;
+import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.rows.UnfilteredRowIterators;
+import org.apache.cassandra.db.rows.UnfilteredSerializer;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
@@ -40,6 +51,7 @@ import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.Downsampling;
+import org.apache.cassandra.io.sstable.SSTableIdentityIterator;
 import org.apache.cassandra.io.sstable.format.IndexFileEntry;
 import org.apache.cassandra.io.sstable.format.PartitionIndexIterator;
 import org.apache.cassandra.io.sstable.format.RowIndexEntry;
@@ -501,6 +513,144 @@ class TrieIndexSSTableReader extends SSTableReader
         }
         else
             return Collections.emptyIterator();
+    }
+
+    public UnfilteredRowIterator iterator(DecoratedKey key,
+                                          Slices slices,
+                                          ColumnFilter selectedColumns,
+                                          boolean reversed,
+                                          SSTableReadsListener listener)
+    {
+        RowIndexEntry<?> rie = getPosition(key, Operator.EQ, true, false, listener);
+        return iterator(null, key, rie, slices, selectedColumns, reversed);
+    }
+
+    @SuppressWarnings("resource") // caller to close
+    public UnfilteredRowIterator simpleIterator(Supplier<FileDataInput> dfile, DecoratedKey key, boolean tombstoneOnly)
+    {
+        RowIndexEntry<?> position = getPosition(key, Operator.EQ, true, false, SSTableReadsListener.NOOP_LISTENER);
+        if (position == null)
+            return null;
+        return SSTableIdentityIterator.create(this, dfile.get(), position, key, tombstoneOnly);
+    }
+
+    @SuppressWarnings("resource")   // Closed by caller
+    public UnfilteredRowIterator iterator(FileDataInput dataFileInput,
+                                          DecoratedKey key,
+                                          RowIndexEntry<?> indexEntry,
+                                          Slices slices,
+                                          ColumnFilter selectedColumns,
+                                          boolean reversed)
+    {
+        if (indexEntry == null)
+            return UnfilteredRowIterators.noRowsIterator(metadata(), key, Rows.EMPTY_STATIC_ROW, DeletionTime.LIVE, reversed);
+
+        boolean shouldCloseFile = false;
+        if (dataFileInput == null)
+        {
+            dataFileInput = openDataReader();
+            shouldCloseFile = true;
+        }
+
+        DeletionTime partitionLevelDeletion;
+        Row staticRow;
+
+        DeserializationHelper helper = new DeserializationHelper(metadata(), descriptor.version.correspondingMessagingVersion(), DeserializationHelper.Flag.LOCAL, selectedColumns);
+        try
+        {
+            // We seek to the beginning to the partition if either:
+            //   - the partition is not indexed; we then have a single block to read anyway
+            //     (and we need to read the partition deletion time).
+            //   - we're querying static columns.
+            boolean needSeekAtPartitionStart = !indexEntry.isIndexed() || !selectedColumns.fetchedColumns().statics.isEmpty();
+
+            if (needSeekAtPartitionStart)
+            {
+                // Not indexed (or is reading static), set to the beginning of the partition and read partition level deletion there
+                dataFileInput.seek(indexEntry.position);
+
+                ByteBufferUtil.skipShortLength(dataFileInput); // Skip partition key
+                partitionLevelDeletion = DeletionTime.serializer.deserialize(dataFileInput);
+                staticRow = readStaticRow(this, dataFileInput, helper, selectedColumns.fetchedColumns().statics);
+            }
+            else
+            {
+                partitionLevelDeletion = indexEntry.deletionTime();
+                staticRow = Rows.EMPTY_STATIC_ROW;
+            }
+
+            @SuppressWarnings("resource")   // Closed with iterator (whose constructor can't throw)
+            PartitionReader reader = reader(dataFileInput, shouldCloseFile, indexEntry, helper, slices, reversed);
+            return new AbstractUnfilteredRowIterator(metadata(), key, partitionLevelDeletion, selectedColumns.fetchedColumns(), staticRow, reversed, stats())
+            {
+                protected Unfiltered computeNext()
+                {
+                    Unfiltered next;
+                    try
+                    {
+                        next = reader.next();
+                    }
+                    catch (IOException | IndexOutOfBoundsException e)
+                    {
+                        markSuspect();
+                        throw new CorruptSSTableException(e, dfile.path());
+                    }
+
+                    if (next != null)
+                        return next;
+                    else
+                        return endOfData();
+                }
+
+                public void close()
+                {
+                    try
+                    {
+                        reader.close();
+                    }
+                    catch (IOException e)
+                    {
+                        markSuspect();
+                        throw new CorruptSSTableException(e, dfile.path());
+                    }
+                }
+            };
+        }
+        catch (IOException e)
+        {
+            markSuspect();
+            if (shouldCloseFile)
+            {
+                try
+                {
+                    dataFileInput.close();
+                }
+                catch (IOException suppressed)
+                {
+                    e.addSuppressed(suppressed);
+                }
+            }
+            throw new CorruptSSTableException(e, dfile.path());
+        }
+    }
+
+    static Row readStaticRow(SSTableReader sstable,
+                             FileDataInput file,
+                             DeserializationHelper helper,
+                             Columns statics) throws IOException
+    {
+        if (!sstable.header.hasStatic())
+            return Rows.EMPTY_STATIC_ROW;
+
+        if (statics.isEmpty())
+        {
+            UnfilteredSerializer.serializer.skipStaticRow(file, sstable.header, helper);
+            return Rows.EMPTY_STATIC_ROW;
+        }
+        else
+        {
+            return UnfilteredSerializer.serializer.deserializeStaticRow(file, sstable.header, helper);
+        }
     }
 
     @Override

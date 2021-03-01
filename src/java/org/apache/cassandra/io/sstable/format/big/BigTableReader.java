@@ -68,6 +68,17 @@ public class BigTableReader extends SSTableReader
         return BigTablePartitionIndexIterator.create(getIndexFile(), rowIndexEntrySerializer);
     }
 
+    public UnfilteredRowIterator iterator(DecoratedKey key,
+                                          Slices slices,
+                                          ColumnFilter selectedColumns,
+                                          boolean reversed,
+                                          SSTableReadsListener listener)
+    {
+        // TODO this will probably not work if we get something which is not a BigTableRowIndexEntry from cache
+        BigTableRowIndexEntry rie = (BigTableRowIndexEntry) getPosition(key, Operator.EQ, true, false, listener);
+        return iterator(null, key, rie, slices, selectedColumns, reversed);
+    }
+
     @Override
     public PartitionIndexIterator coveredKeysIterator(PartitionPosition left, boolean inclusiveLeft, PartitionPosition right, boolean inclusiveRight) throws IOException
     {
